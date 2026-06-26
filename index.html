@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>EVO Design Racing — Das pistas para a sua parede</title>
+  <meta name="description" content="Quadros e cockpits automotivos exclusivos de Fórmula 1. Não é apenas decoração. É presença." />
+  <meta name="theme-color" content="#06040A" />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="EVO Design Racing" />
+  <meta property="og:description" content="Não é apenas decoração. É presença. Quadros automotivos exclusivos de F1." />
+  <meta property="og:type" content="website" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="css/styles.css" />
+
+  <!-- Three.js via importmap (ESM, sem build) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <!-- GSAP + ScrollTrigger (UMD globals) -->
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
+  <!-- Lenis smooth scroll -->
+  <script src="https://cdn.jsdelivr.net/npm/@studio-freight/lenis@1.0.42/dist/lenis.min.js"></script>
+</head>
+<body>
+
+  <!-- LOADER -->
+  <div id="loader" aria-hidden="true">
+    <div class="loader-inner">
+      <div class="loader-mark">EVO</div>
+      <div class="loader-bar"><span id="loader-bar-fill"></span></div>
+      <div class="loader-pct"><span id="loader-pct">0</span>%</div>
+    </div>
+  </div>
+
+  <!-- CANVAS 3D FIXO -->
+  <canvas id="scene"></canvas>
+
+  <!-- Vinheta / glow por cima do canvas -->
+  <div class="vignette" aria-hidden="true"></div>
+
+  <!-- FALLBACK sem WebGL (escondido por padrão) -->
+  <div id="no-webgl" hidden>
+    <div class="no-webgl-inner">
+      <h1>EVO DESIGN RACING</h1>
+      <p>Seu navegador não suporta a experiência 3D. Mas a EVO continua imperdível.</p>
+      <p id="webgl-reason" style="font-size:12px;color:#00d3c0;letter-spacing:1px;margin-top:-6px"></p>
+      <a class="btn" href="https://wa.me/+5511910553569?text=Ol%C3%A1!%20Vim%20do%20site%20e%20gostaria%20de%20transformar%20o%20meu%20ambiente%20com%20o%20quadro%20da%20F1!" target="_blank" rel="noopener">Falar no WhatsApp</a>
+    </div>
+  </div>
+
+  <!-- HEADER -->
+  <header class="site-header">
+    <div class="logo">EVO<span>DESIGN RACING</span></div>
+    <a class="header-cta" href="https://wa.me/+5511910553569?text=Ol%C3%A1!%20Vim%20do%20site%20e%20gostaria%20de%20transformar%20o%20meu%20ambiente%20com%20o%20quadro%20da%20F1!" target="_blank" rel="noopener">Atendimento</a>
+  </header>
+
+  <!-- CONTEÚDO (overlay sobre o canvas) -->
+  <main id="content">
+
+    <!-- 1. HERO — só o portão 3D; sem textos/botões -->
+    <section class="panel panel--hero" data-step="0">
+      <div class="scroll-hint" aria-hidden="true">
+        <div class="scroll-line"></div>
+      </div>
+    </section>
+
+    <!-- 2. EXPERIENCE -->
+    <section class="panel panel--right" data-step="1">
+      <div class="panel-content">
+        <p class="eyebrow reveal">BEM-VINDO À GARAGEM EVO</p>
+        <h2 class="reveal">As portas se abrem.</h2>
+        <p class="body reveal">Atravesse o portão e entre no showroom EVO. Aqui a Fórmula 1 ganha forma, presença e personalidade — pronta para virar parte do seu ambiente.</p>
+      </div>
+    </section>
+
+    <!-- 3. DETALHE / EXCLUSIVIDADE -->
+    <section class="panel panel--left" data-step="2">
+      <div class="panel-content">
+        <p class="eyebrow reveal">SHOWROOM · GRID DE LARGADA</p>
+        <h2 class="reveal">Detalhe é performance.</h2>
+        <p class="body reveal">Materiais selecionados, atenção minuciosa e acabamento refinado. Cada peça nasce para ter identidade própria, presença marcante e proporção pensada para impressionar — feita para durar e sustentar o valor percebido ao longo dos anos.</p>
+      </div>
+    </section>
+
+    <!-- 4. APROXIMAÇÃO DA PAREDE (apenas cena 3D, sem conteúdo) -->
+    <section class="panel" data-step="3"></section>
+
+    <!-- 5. PAREDE DE QUADROS — carrossel um-a-um (área de scroll alta) -->
+    <section class="panel panel--wall" data-step="4">
+      <div class="wall-hint">
+        <p class="eyebrow">A PAREDE EVO · NOSSOS PRODUTOS</p>
+        <p class="wall-sub">Use as setas <strong>‹ ›</strong> para passar os quadros · clique em <strong>VER INFORMAÇÕES</strong></p>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- CARD DE PRODUTO (abre ao clicar num quadro) -->
+  <div id="product-card" aria-hidden="true">
+    <div class="pc-backdrop"></div>
+    <div class="pc-panel" role="dialog" aria-modal="true">
+      <button class="pc-close" aria-label="Fechar">&times;</button>
+      <div class="pc-media"><img id="pc-img" alt="Produto EVO" /></div>
+      <div class="pc-body">
+        <h3 id="pc-title"></h3>
+        <p id="pc-desc"></p>
+        <span id="pc-price" class="pc-price"></span>
+        <a class="btn" href="https://wa.me/+5511910553569?text=Ol%C3%A1!%20Vim%20do%20site%20e%20gostaria%20de%20transformar%20o%20meu%20ambiente%20com%20o%20quadro%20da%20F1!" target="_blank" rel="noopener">Quero esta peça</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Setas da galeria de quadros (aparecem na parede) -->
+  <div id="frame-nav" aria-hidden="true">
+    <button id="frame-prev" aria-label="Quadro anterior">&lsaquo;</button>
+    <button id="frame-next" aria-label="Próximo quadro">&rsaquo;</button>
+  </div>
+
+  <!-- Indicador de progresso lateral -->
+  <nav class="progress-dots" aria-hidden="true">
+    <button data-go="0" class="active"></button>
+    <button data-go="1"></button>
+    <button data-go="2"></button>
+    <button data-go="3"></button>
+    <button data-go="4"></button>
+  </nav>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

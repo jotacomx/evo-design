@@ -1,0 +1,6 @@
+# debug / temp
+sofa-chk.png
+*.log
+.DS_Store
+Thumbs.db
+node_modules/

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Teste WebGL — EVO</title>
+<style>
+  html,body{margin:0;height:100%;font-family:system-ui,sans-serif;background:#06040a;color:#fff;
+    display:flex;align-items:center;justify-content:center;text-align:center}
+  .box{max-width:680px;padding:30px}
+  #status{font-size:34px;font-weight:800;letter-spacing:1px;margin-bottom:18px}
+  .ok{color:#00ff88}.bad{color:#ff3b5c}
+  pre{white-space:pre-wrap;text-align:left;background:#100d18;border:1px solid #2a2638;
+    border-radius:10px;padding:16px;font-size:13px;line-height:1.6;color:#c9c5d6}
+  canvas{margin-top:18px;border-radius:8px}
+  b{color:#00d3c0}
+</style>
+</head>
+<body>
+<div class="box">
+  <div id="status">Testando WebGL…</div>
+  <pre id="info"></pre>
+  <canvas id="c" width="320" height="120"></canvas>
+</div>
+<script>
+(function(){
+  var info = document.getElementById('info');
+  var status = document.getElementById('status');
+  var lines = [];
+  function log(k,v){ lines.push(k+': '+v); info.textContent = lines.join('\n'); }
+
+  var canvas = document.getElementById('c');
+  var gl = null, type = '';
+  try { gl = canvas.getContext('webgl2'); if(gl) type='WebGL 2'; } catch(e){}
+  if(!gl){ try { gl = canvas.getContext('webgl'); if(gl) type='WebGL 1'; } catch(e){} }
+  if(!gl){ try { gl = canvas.getContext('experimental-webgl'); if(gl) type='WebGL (experimental)'; } catch(e){} }
+
+  if(!gl){
+    status.textContent = '❌ WebGL NÃO está disponível';
+    status.className = 'bad';
+    log('Contexto', 'getContext retornou null');
+    log('Causa provável', 'Aceleração de hardware DESLIGADA no navegador');
+    log('Correção Chrome', 'chrome://settings/system → ligar "Usar aceleração de hardware" → Reiniciar');
+    log('Diagnóstico GPU', 'Abra chrome://gpu e veja a linha WebGL');
+    return;
+  }
+
+  status.textContent = '✅ WebGL FUNCIONA (' + type + ')';
+  status.className = 'ok';
+  log('Tipo', type);
+
+  // nome real da GPU
+  try {
+    var dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    if(dbg){
+      log('GPU (renderer)', gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL));
+      log('Fabricante', gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL));
+    }
+  } catch(e){}
+  log('Versão GLSL', gl.getParameter(gl.SHADING_LANGUAGE_VERSION));
+  log('Versão', gl.getParameter(gl.VERSION));
+
+  // desenha um quadro colorido pra confirmar render real
+  gl.clearColor(0.0, 0.83, 0.75, 1.0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  log('Render', 'Quadro verde-água desenhado abaixo = render OK');
+})();
+</script>
+</body>
+</html>

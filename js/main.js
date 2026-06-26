@@ -27,6 +27,10 @@ gsap.registerPlugin(window.ScrollTrigger);
 const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 760;
 
+// camada de BLOOM seletivo (só LEDs e logo brilham, sem afetar carros/piso/paredes)
+const BLOOM_SCENE = 1;
+const bloomLayer = new THREE.Layers(); bloomLayer.set(BLOOM_SCENE);
+
 /* ----------------------------------------------------------- 0. WebGL */
 function getWebGLContext() {
   const c = document.createElement('canvas');
@@ -51,7 +55,7 @@ document.body.classList.add('is-loading');
 const canvas = document.getElementById('scene');
 let renderer;
 try {
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: !isMobile, powerPreference: 'high-performance' });
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 } catch (e) {
   document.getElementById('no-webgl').hidden = false;
   document.getElementById('loader').classList.add('hidden');
@@ -80,7 +84,7 @@ const matDark = new THREE.MeshStandardMaterial({ color: 0x0c0c12, metalness: 0.6
 const matCarbon = new THREE.MeshStandardMaterial({ color: 0x0b0b10, metalness: 0.6, roughness: 0.4 });
 const matTire = new THREE.MeshStandardMaterial({ color: 0x09090c, metalness: 0.1, roughness: 0.85 });
 const matEvo = new THREE.MeshStandardMaterial({ color: 0x00d3c0, metalness: 0.3, roughness: 0.3, emissive: 0x00d3c0, emissiveIntensity: 0.4 });
-const matFrame = new THREE.MeshStandardMaterial({ color: 0x141418, metalness: 1.0, roughness: 0.35 });
+const matFrame = new THREE.MeshStandardMaterial({ color: 0x1a1a1f, metalness: 0.0, roughness: 0.8 }); // fosco (sem brilho na moldura)
 
 const clickable = []; // meshes clicáveis (quadros + bistrôs dos carros)
 
@@ -118,6 +122,27 @@ function loadModel(url, opts = {}) {
   }, undefined, (e) => { console.warn('[EVO] modelo nao carregou:', url, (e && e.message) || e); });
 }
 
+// carrega um .glb IGNORANDO malhas "lixo" gigantes (modelos Sketchfab com backdrop/stray)
+function loadModelClean(url, opts = {}) {
+  const { size = 3, x = 0, z = 0, rotY = 0, floorY = -1.6, onReady } = opts;
+  gltfLoader.load(url, (gltf) => {
+    const root = gltf.scene; fixMats(root); root.updateMatrixWorld(true);
+    const items = [];
+    root.traverse((o) => { if (o.isMesh && o.geometry) { o.geometry.computeBoundingBox(); const b = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld); items.push({ o, b, d: b.getSize(new THREE.Vector3()).length() }); } });
+    if (!items.length) return;
+    const med = items.map((i) => i.d).sort((a, b) => a - b)[Math.floor(items.length / 2)] || 1;
+    const box = new THREE.Box3();
+    items.forEach((i) => { if (i.d > med * 5) i.o.visible = false; else box.union(i.b); }); // esconde gigantes, mede só o resto
+    const c = box.getCenter(new THREE.Vector3()); const s = box.getSize(new THREE.Vector3());
+    const sc = size / Math.max(s.x, s.y, s.z);
+    root.position.sub(c); root.scale.setScalar(sc);
+    const grp = new THREE.Group(); grp.add(root);
+    grp.position.set(x, floorY - (box.min.y - c.y) * sc, z); grp.rotation.y = rotY;
+    scene.add(grp);
+    if (onReady) onReady(grp, root);
+  }, undefined, (e) => { console.warn('[EVO] modelo nao carregou:', url, (e && e.message) || e); });
+}
+
 /* ----------------------------------------------------------- 3. Showroom: chão, paredes texturizadas, teto, sala fechada */
 const SHOW_HALF = 9;          // parede lateral a x = ±9
 const ROOM_FRONT = 6;         // z da entrada (portão)
@@ -146,25 +171,23 @@ const wallTex = makeWallTexture();
 
 // --- piso (concreto polido com leve textura) ---
 const floorTex = wallTex.clone(); floorTex.repeat.set(8, 24);
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(2 * SHOW_HALF, 120),
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(2 * SHOW_HALF, 91),
   new THREE.MeshStandardMaterial({ color: 0x3a3b42, metalness: 0.1, roughness: 0.6 }));
-floor.rotation.x = -Math.PI / 2; floor.position.set(0, -1.6, -25); scene.add(floor);
-// piso interno com AZULEJO (Poliigon TilesCeramicWhite) — cor + relevo
+floor.rotation.x = -Math.PI / 2; floor.position.set(0, -1.6, -39.5); scene.add(floor); // termina na porta (z=6) — não invade a calçada
+// piso interno: textura "piso" (Tiles056 — xadrez preto e branco) — cor + relevo
 {
   const tlf = new THREE.TextureLoader(); let col = null, nrm = null, pend = 2;
-  const RX = 12, RY = 80;
+  const RX = 2.5, RY = 12.6; // escala uniforme (quadrados ~1,2m)
   const ma = renderer.capabilities.getMaxAnisotropy();
   const apply = () => { if (--pend) return;
     col.colorSpace = THREE.SRGBColorSpace; col.wrapS = col.wrapT = THREE.RepeatWrapping; col.repeat.set(RX, RY); col.anisotropy = ma;
     nrm.wrapS = nrm.wrapT = THREE.RepeatWrapping; nrm.repeat.set(RX, RY); nrm.anisotropy = ma;
-    floor.material = new THREE.MeshStandardMaterial({ map: col, normalMap: nrm, color: 0xffffff, metalness: 0.15, roughness: 0.45 });
+    floor.material = new THREE.MeshStandardMaterial({ map: col, normalMap: nrm, color: 0xffffff, metalness: 0.2, roughness: 0.4 });
   };
-  tlf.load('assets/textures/floor_col.jpg', (t) => { col = t; apply(); });
-  tlf.load('assets/textures/floor_nrm.jpg', (t) => { nrm = t; apply(); });
+  tlf.load('assets/textures/piso_col.jpg', (t) => { col = t; apply(); });
+  tlf.load('assets/textures/piso_nrm.jpg', (t) => { nrm = t; apply(); });
 }
 
-const grid = new THREE.GridHelper(120, 60, 0x3a3b42, 0x2c2d33);
-grid.position.set(0, -1.585, -25); grid.material.transparent = true; grid.material.opacity = 0.45; scene.add(grid);
 
 // --- CALÇADA externa (rua, na frente da garagem) ---
 function makeSidewalkTexture() {
@@ -178,7 +201,7 @@ function makeSidewalkTexture() {
 }
 const sidewalk = new THREE.Mesh(new THREE.PlaneGeometry(240, 90),
   new THREE.MeshStandardMaterial({ color: 0x9a9a9e, metalness: 0.0, roughness: 0.96 }));
-sidewalk.rotation.x = -Math.PI / 2; sidewalk.position.set(0, -1.585, 48); scene.add(sidewalk); // vai até bem perto da câmera
+sidewalk.rotation.x = -Math.PI / 2; sidewalk.position.set(0, -1.585, 51); scene.add(sidewalk); // começa na porta (z=6) e vai até perto da câmera, sem invadir o interior
 // textura real de calçada (PavingStones) — cor + relevo
 {
   const tls = new THREE.TextureLoader(); let col = null, nrm = null, pend = 2;
@@ -197,7 +220,11 @@ const curb = new THREE.Mesh(new THREE.BoxGeometry(240, 0.18, 0.5),
   new THREE.MeshStandardMaterial({ color: 0x6f6f75, metalness: 0.1, roughness: 0.9 }));
 curb.position.set(0, -1.5, 5.4); scene.add(curb);
 
-// --- paredes laterais: DIREITA = espelho (reflete a loja) · ESQUERDA = texturizada ---
+// --- paredes laterais: DIREITA = espelho · ESQUERDA = fachada de blocos de concreto (textura parede esquerda) ---
+const _wtl = new THREE.TextureLoader();
+const _aniso = renderer.capabilities.getMaxAnisotropy();
+const lwallCol = _wtl.load('assets/textures/lwall_col.jpg'); lwallCol.colorSpace = THREE.SRGBColorSpace; lwallCol.wrapS = lwallCol.wrapT = THREE.RepeatWrapping; lwallCol.repeat.set(8, 2.2); lwallCol.anisotropy = _aniso;
+const lwallBump = _wtl.load('assets/textures/lwall_bump.jpg'); lwallBump.wrapS = lwallBump.wrapT = THREE.RepeatWrapping; lwallBump.repeat.set(8, 2.2); lwallBump.anisotropy = _aniso;
 [-1, 1].forEach((s) => {
   if (s === 1 && !isMobile) {
     // espelho na parede direita
@@ -208,15 +235,10 @@ curb.position.set(0, -1.5, 5.4); scene.add(curb);
     mirror.rotation.y = -Math.PI / 2;
     scene.add(mirror);
   } else {
-    const wt = wallTex.clone(); wt.repeat.set(8, 2);
     const wall = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_LEN, 11),
-      new THREE.MeshStandardMaterial({ map: wt, color: 0x9aa0aa, metalness: 0.2, roughness: 0.85 }));
+      new THREE.MeshStandardMaterial({ map: lwallCol, bumpMap: lwallBump, bumpScale: 0.08, color: 0xffffff, metalness: 0.25, roughness: 0.8 }));
     wall.position.set(s * SHOW_HALF, 2.5, ROOM_MIDZ); wall.rotation.y = -s * Math.PI / 2; scene.add(wall); // termina no portão (z=6)
   }
-  // rodapé de LED discreto (nos dois lados)
-  const skirt = new THREE.Mesh(new THREE.BoxGeometry(ROOM_LEN, 0.05, 0.05),
-    new THREE.MeshStandardMaterial({ color: 0x00d3c0, emissive: 0x00d3c0, emissiveIntensity: 0.5 }));
-  skirt.position.set(s * (SHOW_HALF - 0.06), -1.5, ROOM_MIDZ); skirt.rotation.y = -s * Math.PI / 2; scene.add(skirt);
 });
 
 // --- teto + parede do fundo (sala fechada, sem gaps) ---
@@ -224,113 +246,71 @@ curb.position.set(0, -1.5, 5.4); scene.add(curb);
 const ceil = new THREE.Mesh(new THREE.PlaneGeometry(2 * SHOW_HALF, 100),
   new THREE.MeshStandardMaterial({ color: 0x16161c, metalness: 0.2, roughness: 0.9 }));
 ceil.rotation.x = Math.PI / 2; ceil.position.set(0, 6.5, -44); scene.add(ceil);
-// parede do fundo: tinta clara texturizada (galeria) — larga p/ sempre ter parede atrás dos quadros
-function makeLightWallTexture() {
-  const c = document.createElement('canvas'); c.width = 512; c.height = 512;
-  const x = c.getContext('2d');
-  x.fillStyle = '#d6d6db'; x.fillRect(0, 0, 512, 512);
-  for (let i = 0; i <= 512; i += 170) { x.fillStyle = 'rgba(0,0,0,0.06)'; x.fillRect(i - 1, 0, 2, 512); }
-  for (let n = 0; n < 4000; n++) { x.fillStyle = 'rgba(0,0,0,' + (Math.random() * 0.03) + ')'; x.fillRect(Math.random() * 512, Math.random() * 512, 1, 1); }
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(8, 2); return t;
-}
-const BACK_W = 30;
-const backWall = new THREE.Mesh(new THREE.PlaneGeometry(BACK_W, 15),
-  new THREE.MeshStandardMaterial({ map: makeLightWallTexture(), color: 0xffffff, metalness: 0.0, roughness: 0.95 }));
+// parede do fundo: UMA parede só, MESMA textura da esquerda (fachada de blocos)
+const BACK_W = 40;
+const bwCol = _wtl.load('assets/textures/lwall_col.jpg'); bwCol.colorSpace = THREE.SRGBColorSpace; bwCol.wrapS = bwCol.wrapT = THREE.RepeatWrapping; bwCol.repeat.set(8, 3.2); bwCol.anisotropy = _aniso;
+const bwBump = _wtl.load('assets/textures/lwall_bump.jpg'); bwBump.wrapS = bwBump.wrapT = THREE.RepeatWrapping; bwBump.repeat.set(8, 3.2); bwBump.anisotropy = _aniso;
+const backWall = new THREE.Mesh(new THREE.PlaneGeometry(BACK_W, 16),
+  new THREE.MeshStandardMaterial({ map: bwCol, bumpMap: bwBump, bumpScale: 0.08, color: 0xffffff, metalness: 0.25, roughness: 0.8 }));
 backWall.position.set(0, 3.2, ROOM_BACK); scene.add(backWall);
 
-// --- trilhos de LED no chão (discretos) ---
-const railGeo = new THREE.BoxGeometry(0.09, 0.06, 1.0);
-const railMat = new THREE.MeshStandardMaterial({ color: 0x00d3c0, emissive: 0x00d3c0, emissiveIntensity: 0.6 });
-for (let z = ROOM_FRONT - 2; z > ROOM_BACK + 2; z -= 2.6) {
-  [-(SHOW_HALF - 0.7), SHOW_HALF - 0.7].forEach((x) => {
-    const led = new THREE.Mesh(railGeo, railMat); led.position.set(x, -1.53, z); scene.add(led);
-  });
+// --- RODAPÉ de MADEIRA entre as paredes internas e o piso (acabamento discreto) ---
+{
+  const woodMat = (repX) => {
+    const t = _wtl.load('assets/textures/rodape_col.jpg'); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(repX, 1); t.anisotropy = _aniso;
+    return new THREE.MeshStandardMaterial({ map: t, color: 0xffffff, metalness: 0.0, roughness: 0.6 });
+  };
+  const BH = 0.24, BD = 0.16, BY = -1.6 + BH / 2; // nem grosso nem fino
+  const bbL = new THREE.Mesh(new THREE.BoxGeometry(BD, BH, ROOM_LEN), woodMat(18)); bbL.position.set(-(SHOW_HALF - 0.05), BY, ROOM_MIDZ); scene.add(bbL);
+  const bbR = new THREE.Mesh(new THREE.BoxGeometry(BD, BH, ROOM_LEN), woodMat(18)); bbR.position.set(SHOW_HALF - 0.05, BY, ROOM_MIDZ); scene.add(bbR);
+  const bbB = new THREE.Mesh(new THREE.BoxGeometry(2 * SHOW_HALF, BH, BD), woodMat(9)); bbB.position.set(0, BY, ROOM_BACK + 0.1); scene.add(bbB);
 }
 
-// --- faixas lineares de luz no teto (contidas na sala, brilho baixo) ---
-const stripMat = new THREE.MeshStandardMaterial({ color: 0xfff4e6, emissive: 0xffe9cc, emissiveIntensity: 0.7 });
-[-3.4, 0, 3.4].forEach((x) => {
-  const strip = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.05, ROOM_LEN - 4), stripMat);
-  strip.position.set(x, 6.4, ROOM_MIDZ); scene.add(strip);
-});
+// (trilhos de LED no chão removidos a pedido)
 
-/* ----------------------------------------------------------- 3b. Prateleiras (GLB) com rodas e volantes de F1 */
-// >>> ajustáveis ao vivo:
-const SHELF_Y = 2.2;       // altura da prateleira na parede
-const SHELF_LEN = 26;      // comprimento ao longo da parede
-const RODA_SIZE = 0.95;    // tamanho do pneu
-const VOL_SIZE = 0.55;     // tamanho do volante
-
-const SHELF_SIDE = -1; // só na parede ESQUERDA (a direita virou espelho)
-
-// prateleira (modelo real shelf.glb) na parede esquerda
-gltfLoader.load('assets/models/shelf.glb', (gltf) => {
-  const m = gltf.scene.clone(true); fixMats(m);
-  const box = new THREE.Box3().setFromObject(m);
-  const s = box.getSize(new THREE.Vector3()); const c = box.getCenter(new THREE.Vector3());
-  m.position.sub(c);
-  m.scale.setScalar(SHELF_LEN / s.x);     // eixo longo (X) ao longo da parede
-  const g = new THREE.Group(); g.add(m);
-  g.rotation.y = Math.PI / 2;
-  g.position.set(SHELF_SIDE * (SHOW_HALF - 0.2), SHELF_Y, ROOM_MIDZ);
-  scene.add(g);
-});
-
-// enfeites (roda/volante) juntos, sobre a prateleira esquerda
-const rodaPos = [], volPos = [];
-let k = 0;
-for (let z = ROOM_FRONT - 5; z > ROOM_BACK + 4; z -= (isMobile ? 4.0 : 2.4)) { // menos itens no celular
-  const item = { x: SHELF_SIDE * (SHOW_HALF - 0.75), z, rotY: Math.PI / 2 };
-  (k % 2 === 0 ? rodaPos : volPos).push(item); k++;
+// cores de LED — bloom seletivo
+const LED_BLUE = 0x4fb4ff;   // teto (forte)
+const RING_BLUE = 0x1c4a70;  // anel da plataforma (bem fraco -> brilho bem leve)
+// --- LUZ HEXAGONAL no teto (favo de mel, LED azul) ---
+// anel hexagonal (tubo de luz) — material "basic" = sempre aceso (cara de LED)
+function hexRingGeo(R, tube) {
+  const outer = new THREE.Shape();
+  for (let i = 0; i <= 6; i++) { const a = i * Math.PI / 3; const px = Math.cos(a) * R, py = Math.sin(a) * R; i ? outer.lineTo(px, py) : outer.moveTo(px, py); }
+  const hole = new THREE.Path(); const ri = R - tube;
+  for (let i = 0; i <= 6; i++) { const a = i * Math.PI / 3; const px = Math.cos(a) * ri, py = Math.sin(a) * ri; i ? hole.lineTo(px, py) : hole.moveTo(px, py); }
+  outer.holes.push(hole);
+  return new THREE.ShapeGeometry(outer);
 }
-function placeDecor(url, size, list) {
-  gltfLoader.load(url, (gltf) => {
-    list.forEach((p) => {
-      const m = gltf.scene.clone(true); fixMats(m);
-      const box = new THREE.Box3().setFromObject(m);
-      const s = box.getSize(new THREE.Vector3()); const c = box.getCenter(new THREE.Vector3());
-      m.position.sub(c); m.scale.setScalar(size / Math.max(s.x, s.y, s.z));
-      const g = new THREE.Group(); g.add(m);
-      const b2 = new THREE.Box3().setFromObject(g);
-      g.position.set(p.x, SHELF_Y + 0.06 - b2.min.y, p.z); g.rotation.y = p.rotY;
-      scene.add(g);
-    });
-  });
+{
+  const HEX_R = 2.1, HEX_TUBE = 0.16, HEX_Y = 6.25;
+  const ledBlue = new THREE.MeshBasicMaterial({ color: LED_BLUE, side: THREE.DoubleSide }); // LED azul (visível por baixo)
+  const hexGeo = hexRingGeo(HEX_R, HEX_TUBE);
+  const hexGroup = new THREE.Group();
+  // favo de mel "flat-top": colunas em X, linhas em Z (cobre o corredor)
+  for (let col = -1; col <= 1; col++) {
+    for (let row = -1; row <= 9; row++) {
+      const x = col * 1.5 * HEX_R;
+      const z = ROOM_FRONT - 4 - (row + (col & 1 ? 0.5 : 0)) * Math.sqrt(3) * HEX_R;
+      if (z < ROOM_BACK + 3) continue;
+      const hx = new THREE.Mesh(hexGeo, ledBlue);
+      hx.rotation.x = -Math.PI / 2; // deita no teto
+      hx.position.set(x, HEX_Y, z);
+      hx.layers.enable(BLOOM_SCENE); // brilha
+      hexGroup.add(hx);
+    }
+  }
+  scene.add(hexGroup);
+  // (point lights do teto removidos — causavam os poços de brilho no teto)
 }
-placeDecor('assets/models/deco_roda.glb', RODA_SIZE, rodaPos);
-placeDecor('assets/models/deco_volante.glb', VOL_SIZE, volPos);
+// claridade azulada na sala (luz ambiente fria, sem hotspot)
+scene.add(new THREE.HemisphereLight(0xbfe0ff, 0x20242c, 0.9));
 
-/* ----------------------------------------------------------- 3c. Bancada do chefe (recepção) */
-let deskGroup = null;
-(function makeDesk() {
-  const g = new THREE.Group();
-  const wood = new THREE.MeshStandardMaterial({ color: 0x241c14, metalness: 0.2, roughness: 0.65 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x14141a, metalness: 0.5, roughness: 0.5 });
-  const top = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.14, 1.2), wood); top.position.y = 0.95; g.add(top);
-  const front = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.9, 0.12), dark); front.position.set(0, 0.45, 0.55); g.add(front);
-  const strip = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.07, 0.03), new THREE.MeshStandardMaterial({ color: 0x00d3c0, emissive: 0x00d3c0, emissiveIntensity: 0.7 })); strip.position.set(0, 0.6, 0.62); g.add(strip);
-  [-1, 1].forEach((s) => { const sd = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.9, 1.2), wood); sd.position.set(s * 1.64, 0.45, 0); g.add(sd); });
-  const mon = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.55, 0.05), new THREE.MeshStandardMaterial({ color: 0x05131a, emissive: 0x00332e, emissiveIntensity: 0.5 })); mon.position.set(-0.7, 1.35, -0.15); g.add(mon);
-  const chairSeat = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.12, 0.55), dark); chairSeat.position.set(0, 0.55, -1.05); g.add(chairSeat);
-  const chairBack = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.7, 0.12), dark); chairBack.position.set(0, 0.95, -1.3); g.add(chairBack);
-  g.scale.setScalar(1.5);               // mesa maior
-  g.position.set(-6.8, -1.6, -30); g.rotation.y = Math.PI / 2; // canto esquerdo (junto à parede esq.), voltada p/ o corredor
-  scene.add(g);
-  deskGroup = g;
-})();
+/* ----------------------------------------------------------- 3b/3c. (prateleira, rodas, volantes, bancada e sofá removidos a pedido) */
 
-// Sofá 3D no lugar da bancada (recepção)
-loadModel('assets/models/sofa.glb', {
-  size: 3.2, x: -6.8, z: -30, rotY: Math.PI / 2,
-  onReady: () => { if (deskGroup) deskGroup.visible = false; },
-});
-
-/* ----------------------------------------------------------- 4. Luzes (showroom, brilho contido) */
-scene.add(new THREE.AmbientLight(0x5a616e, 0.85));
-const moon = new THREE.DirectionalLight(0xdfe8ff, 0.55); moon.position.set(6, 14, 10); scene.add(moon);
-for (let z = ROOM_FRONT - 3; z > ROOM_BACK + 3; z -= (isMobile ? 13 : 8)) {
-  const pl = new THREE.PointLight(0xfff4e6, isMobile ? 9 : 7, 18, 2); pl.position.set(0, 6, z); scene.add(pl);
-}
+/* ----------------------------------------------------------- 4. Luzes (sem holofotes/brilho — só luz difusa uniforme) */
+scene.add(new THREE.AmbientLight(0xcdd2da, 1.5));
+const moon = new THREE.DirectionalLight(0xeef2ff, 0.9); moon.position.set(6, 14, 10); scene.add(moon);
+const fillLight = new THREE.DirectionalLight(0xdfe6f0, 0.5); fillLight.position.set(-6, 10, -14); scene.add(fillLight);
 
 /* ----------------------------------------------------------- 5. PORTÃO DE GARAGEM "EVO DESIGN" */
 const doorGroup = new THREE.Group();
@@ -379,35 +359,23 @@ const DOOR_OPEN_RISE = 7.2;
 
   // (grafite e contorno verde-água removidos a pedido)
 
-  // textura do portão: METAL real (Metal061B) como base + chapas horizontais + "EVO DESIGN RACING"
+  // textura do portão: chapa enrolável real (pasta "portao") recortada do atlas + "EVO DESIGN RACING"
   const dc = document.createElement('canvas'); dc.width = 1024; dc.height = 768;
   const x = dc.getContext('2d');
-  function drawDoor(metalImg) {
-    // base: textura de metal (lado a lado) ou fallback cinza
-    if (metalImg) {
-      const tx = 1024 / 2, ty = 768 / 2;
-      for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) x.drawImage(metalImg, i * tx, j * ty, tx, ty);
-      x.fillStyle = 'rgba(205,210,216,0.12)'; x.fillRect(0, 0, 1024, 768);
+  function drawDoor(img) {
+    if (img) {
+      // recorta só a área limpa das chapas (sem a faixa escura do topo) e estica p/ preencher (mesma proporção)
+      x.drawImage(img, 18, 135, 582, 418, 0, 0, 1024, 768);
     } else {
       const grd = x.createLinearGradient(0, 0, 0, 768);
-      grd.addColorStop(0, '#9aa0a8'); grd.addColorStop(0.5, '#ced3da'); grd.addColorStop(1, '#9aa0a8');
+      grd.addColorStop(0, '#b9bcc0'); grd.addColorStop(0.5, '#d6d9dd'); grd.addColorStop(1, '#b9bcc0');
       x.fillStyle = grd; x.fillRect(0, 0, 1024, 768);
     }
-    // reflexo vertical suave (brilho metálico)
+    // reflexo vertical suave
     const sh = x.createLinearGradient(0, 0, 1024, 0);
-    sh.addColorStop(0, 'rgba(255,255,255,0)'); sh.addColorStop(0.5, 'rgba(255,255,255,0.16)'); sh.addColorStop(1, 'rgba(255,255,255,0)');
+    sh.addColorStop(0, 'rgba(255,255,255,0)'); sh.addColorStop(0.5, 'rgba(255,255,255,0.10)'); sh.addColorStop(1, 'rgba(255,255,255,0)');
     x.fillStyle = sh; x.fillRect(0, 0, 1024, 768);
-    // chapas horizontais com relevo
-    const N = 9, secH = 768 / N;
-    for (let i = 0; i < N; i++) {
-      const y0 = i * secH;
-      x.fillStyle = 'rgba(0,0,0,0.42)'; x.fillRect(0, y0, 1024, 3);
-      x.fillStyle = 'rgba(255,255,255,0.26)'; x.fillRect(0, y0 + 4, 1024, 3);
-      const sg = x.createLinearGradient(0, y0, 0, y0 + secH);
-      sg.addColorStop(0, 'rgba(255,255,255,0.05)'); sg.addColorStop(0.5, 'rgba(255,255,255,0.10)'); sg.addColorStop(1, 'rgba(0,0,0,0.12)');
-      x.fillStyle = sg; x.fillRect(0, y0 + 7, 1024, secH - 7);
-    }
-    // texto
+    // texto EVO DESIGN RACING
     x.textAlign = 'center';
     x.shadowColor = 'rgba(0,0,0,0.45)'; x.shadowBlur = 14; x.shadowOffsetY = 3;
     x.fillStyle = '#00b8a8'; x.font = 'bold 168px Oswald, sans-serif'; x.fillText('EVO', 512, 350);
@@ -417,7 +385,7 @@ const DOOR_OPEN_RISE = 7.2;
   drawDoor(null);
   const doorTex = new THREE.CanvasTexture(dc); doorTex.colorSpace = THREE.SRGBColorSpace;
   doorTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  { const mi = new Image(); mi.onload = () => { drawDoor(mi); doorTex.needsUpdate = true; }; mi.src = 'assets/textures/metal_col.jpg'; }
+  { const mi = new Image(); mi.onload = () => { drawDoor(mi); doorTex.needsUpdate = true; }; mi.src = 'assets/textures/door2_col.jpg'; }
 
   // portão menos metálico/reflexivo -> sem o brilho (hotspot) acima do EVO
   const matDoorEdge = new THREE.MeshStandardMaterial({ color: 0x5a5e63, metalness: 0.5, roughness: 0.55 });
@@ -434,31 +402,55 @@ const DOOR_OPEN_RISE = 7.2;
   const tmpC = () => new THREE.MeshStandardMaterial({ color: 0x8f8f93, roughness: 0.9 });
   const addC = (mesh, rx, ry) => { mesh.material = tmpC(); concreteParts.push({ mesh, rx, ry }); doorGroup.add(mesh); };
 
+  // repeat UNIFORME (mesma escala nos 2 eixos -> sem esticar a textura, sem serrilhado). TILE ~1.6 unidades.
+  const CT = 1.6;
   const JW = 0.6, JZ = 6.3;
   // batentes laterais (cobrem a lateral do portão e o vão até a parede)
-  const jL = new THREE.Mesh(new THREE.BoxGeometry(JW, 7.3, 0.6)); jL.position.set(-(VAO + 0.05), 2.05, JZ); addC(jL, 1, 4);
-  const jR = new THREE.Mesh(new THREE.BoxGeometry(JW, 7.3, 0.6)); jR.position.set(VAO + 0.05, 2.05, JZ); addC(jR, 1, 4);
+  const jL = new THREE.Mesh(new THREE.BoxGeometry(JW, 7.3, 0.6)); jL.position.set(-(VAO + 0.05), 2.05, JZ); addC(jL, JW / CT, 7.3 / CT);
+  const jR = new THREE.Mesh(new THREE.BoxGeometry(JW, 7.3, 0.6)); jR.position.set(VAO + 0.05, 2.05, JZ); addC(jR, JW / CT, 7.3 / CT);
   // verga (cobre o topo do portão + a faixa de pedra logo acima, sem deixar aparecer a parede)
-  const lintel = new THREE.Mesh(new THREE.BoxGeometry(2 * (VAO + 0.05) + JW, 1.4, 0.6)); lintel.position.set(0, 5.55, JZ); addC(lintel, 4, 1);
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(2 * (VAO + 0.05) + JW, 1.4, 0.6)); lintel.position.set(0, 5.55, JZ); addC(lintel, (2 * (VAO + 0.05) + JW) / CT, 1.4 / CT);
   // soleira (degrau) na base: separa a calçada da área interna
-  const thresh = new THREE.Mesh(new THREE.BoxGeometry(2 * (VAO + 0.05) + JW, 0.22, 0.95)); thresh.position.set(0, -1.49, 6.22); addC(thresh, 4, 1);
+  const thresh = new THREE.Mesh(new THREE.BoxGeometry(2 * (VAO + 0.05) + JW, 0.22, 0.95)); thresh.position.set(0, -1.49, 6.22); addC(thresh, (2 * (VAO + 0.05) + JW) / CT, 0.95 / CT);
   // rodapé nas laterais (onde a parede encontra a calçada)
-  const baseL = new THREE.Mesh(new THREE.BoxGeometry(116, 0.5, 0.4)); baseL.position.set(-(VAO + 0.3) - 58, -1.4, 6.05); addC(baseL, 40, 1);
-  const baseR = new THREE.Mesh(new THREE.BoxGeometry(116, 0.5, 0.4)); baseR.position.set((VAO + 0.3) + 58, -1.4, 6.05); addC(baseR, 40, 1);
+  const baseL = new THREE.Mesh(new THREE.BoxGeometry(116, 0.5, 0.4)); baseL.position.set(-(VAO + 0.3) - 58, -1.4, 6.05); addC(baseL, 116 / CT, 0.5 / CT);
+  const baseR = new THREE.Mesh(new THREE.BoxGeometry(116, 0.5, 0.4)); baseR.position.set((VAO + 0.3) + 58, -1.4, 6.05); addC(baseR, 116 / CT, 0.5 / CT);
 
-  const tlc = new THREE.TextureLoader(); let ccol = null, cnrm = null, cpend = 2;
+  const tlc = new THREE.TextureLoader(); let ccol = null, cpend = 1;
   const applyConcrete = () => {
     if (--cpend) return;
     const ma = renderer.capabilities.getMaxAnisotropy();
     concreteParts.forEach((p) => {
+      // só cor (sem normal map) nas peças finas -> elimina o ruído/serrilhado em ângulo raso
       const c = ccol.clone(); c.wrapS = c.wrapT = THREE.RepeatWrapping; c.repeat.set(p.rx, p.ry); c.colorSpace = THREE.SRGBColorSpace; c.anisotropy = ma; c.needsUpdate = true;
-      const n = cnrm.clone(); n.wrapS = n.wrapT = THREE.RepeatWrapping; n.repeat.set(p.rx, p.ry); n.anisotropy = ma; n.needsUpdate = true;
-      p.mesh.material = new THREE.MeshStandardMaterial({ map: c, normalMap: n, color: 0xffffff, metalness: 0.0, roughness: 0.9 });
+      p.mesh.material = new THREE.MeshStandardMaterial({ map: c, color: 0xcfcfd3, metalness: 0.0, roughness: 0.92 });
     });
   };
   tlc.load('assets/textures/concrete_col.jpg', (t) => { ccol = t; applyConcrete(); });
-  tlc.load('assets/textures/concrete_nrm.jpg', (t) => { cnrm = t; applyConcrete(); });
 })();
+
+/* ----------------------------------------------------------- 5b. BEBIDAS (máquina de salgadinhos) na parte externa, encostadas na parede (2x à esquerda da porta) */
+gltfLoader.load('assets/models/bebidas.glb', (gltf) => {
+  const root = gltf.scene; root.updateMatrixWorld(true); // SEM fixMats -> preserva o VIDRO (senão vira painel preto)
+  // mede meshes e esconde "lixo" gigante; centraliza/mede pelo resto
+  const items = [];
+  root.traverse((o) => { if (o.isMesh && o.geometry) { o.geometry.computeBoundingBox(); const b = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld); items.push({ o, b, d: b.getSize(new THREE.Vector3()).length() }); } });
+  if (!items.length) return;
+  const med = items.map((i) => i.d).sort((a, b) => a - b)[Math.floor(items.length / 2)] || 1;
+  const box = new THREE.Box3();
+  items.forEach((i) => { if (i.d > med * 6) i.o.visible = false; else box.union(i.b); });
+  const s = box.getSize(new THREE.Vector3()); const c = box.getCenter(new THREE.Vector3());
+  const SIZE = 2.4; const sc = SIZE / Math.max(s.x, s.y, s.z);
+  [[-6.9, 6.7], [-9.5, 6.7]].forEach(([bx, bz]) => {
+    const m = root.clone(true); m.scale.set(sc, sc * 1.4, sc); // altura +40%
+    m.position.set(-c.x * sc, -box.min.y * sc * 1.4, -c.z * sc); // centro em xz, base no chão
+    const grp = new THREE.Group(); grp.add(m);
+    grp.position.set(bx, -1.585, bz); grp.rotation.y = Math.PI; // de frente p/ a rua
+    scene.add(grp);
+  });
+  // luz pra iluminar as máquinas (exterior é escuro)
+  const bl = new THREE.PointLight(0xfff2e0, 7, 12, 2); bl.position.set(-8.2, 1.6, 8.2); scene.add(bl);
+});
 
 /* ----------------------------------------------------------- 6. CARROS DE F1 (procedurais, giram em torno de si) */
 function makeF1Car(accent) {
@@ -513,7 +505,7 @@ const cars = [];
 const CAR_FLOOR_Y = -0.82; // rodas tocam o piso (y=-1.6)
 const accents = [0x00d3c0, 0xff2d55, 0xffd000, 0x3399ff, 0xffffff, 0x00d3c0];
 // no celular os carros ficam mais perto do centro (pra aparecerem no portrait)
-const CAR_X = isMobile ? 3.0 : 4.5; // mais centralizados
+const CAR_X = isMobile ? 2.4 : 3.6; // 20% mais perto do centro
 // dados de cada carro (abrem no card ao clicar no bistrô)
 const carData = [
   { img: '1.png',  title: 'Cockpit Concept Completo', price: 'a partir de R$ 3.299,90', desc: 'A versão mais imponente da EVO. Rodas dianteiras e traseiras, estrutura completa e presença máxima. A partir de 1,0m x 40cm.' },
@@ -525,10 +517,10 @@ const carData = [
 ];
 // carros 3D reais (size/rotY ajustáveis por modelo)
 const carModels = [
-  { file: 'car_ferrari.glb', size: 3.8, rotY: 0 },
-  { file: 'car_rb20.glb',    size: 3.8, rotY: 0 },
-  { file: 'car_mcl39.glb',   size: 3.8, rotY: 0 },
-  { file: 'car_mp431.glb',   size: 3.8, rotY: 0 },
+  { file: 'car_ferrari.glb', size: 4.94, rotY: 0 },
+  { file: 'car_rb20.glb',    size: 4.94, rotY: 0 },
+  { file: 'car_mcl39.glb',   size: 4.94, rotY: 0 },
+  { file: 'car_mp431.glb',   size: 4.94, rotY: 0 },
 ];
 const carSlots = [
   { x: -CAR_X, z: -2 }, { x: CAR_X, z: -7 },
@@ -561,32 +553,64 @@ function makeKiosk(data, side) {
   return g;
 }
 
-carSlots.forEach((slot, i) => {
-  const acc = accents[i % accents.length];
-  const station = new THREE.Group();
-  station.position.set(slot.x, 0, slot.z);
-  station.add(makeFloorRing(acc));
-  scene.add(station);
+// pódio sob cada carro: base estática (anel de LED azul) + TOPO giratório (gira junto com o carro)
+const PODIUM_TOP = -1.28;
+const spinPlats = []; // topos giratórios {plat, spin}
+function makePodium(x, z, spin) {
+  // base estática (cilindro escuro + anel de LED azul na borda)
+  const baseG = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(3.05, 3.35, 0.24, 60),
+    new THREE.MeshStandardMaterial({ color: 0x0b0c10, metalness: 0.5, roughness: 0.45 }));
+  base.position.y = -1.52; baseG.add(base);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(3.18, 0.07, 14, 96),
+    new THREE.MeshBasicMaterial({ color: RING_BLUE }));
+  ring.rotation.x = Math.PI / 2; ring.position.y = -1.5; ring.layers.enable(BLOOM_SCENE); baseG.add(ring);
+  baseG.position.set(x, 0, z); scene.add(baseG);
 
-  // carro 3D real (carrega, assenta no chão e fica girando)
+  // TOPO giratório (disco que roda com o carro) + marcas radiais p/ perceber a rotação
+  const topG = new THREE.Group();
+  const topDisc = new THREE.Mesh(new THREE.CylinderGeometry(3.0, 3.0, 0.12, 60),
+    new THREE.MeshStandardMaterial({ color: 0x141519, metalness: 0.5, roughness: 0.4 }));
+  topDisc.position.y = -1.4; topG.add(topDisc);
+  const markMat = new THREE.MeshStandardMaterial({ color: 0x2c2e36, metalness: 0.3, roughness: 0.6 });
+  for (let a = 0; a < 8; a++) { // 8 marcas na borda do disco (mostram o giro)
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.1), markMat);
+    m.position.set(Math.cos(a * Math.PI / 4) * 2.7, -1.33, Math.sin(a * Math.PI / 4) * 2.7);
+    m.rotation.y = -a * Math.PI / 4; topG.add(m);
+  }
+  topG.position.set(x, 0, z); scene.add(topG);
+  spinPlats.push({ plat: topG, spin });
+}
+
+// "verniz": deixa a pintura do carro mais brilhante e a cor mais viva (clear-coat)
+function varnish(grp) {
+  grp.traverse((o) => {
+    if (o.isMesh && o.material) {
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach((m) => {
+        if (m.roughness !== undefined) m.roughness = Math.max(0.06, m.roughness * 0.35); // mais liso (brilhante)
+        m.envMapIntensity = 1.5; // reflexo do ambiente (cara de verniz)
+        if (m.color) { const hsl = {}; m.color.getHSL(hsl); m.color.setHSL(hsl.h, Math.min(1, hsl.s * 1.25), hsl.l); } // cor mais viva
+        m.needsUpdate = true;
+      });
+    }
+  });
+}
+
+// carros: modelo + plataforma giram juntos sobre o pódio
+carSlots.forEach((slot, i) => {
   const cm = carModels[i];
+  const spin = 0.2 + i * 0.04;
+  makePodium(slot.x, slot.z, spin);
   loadModel('assets/models/' + cm.file, {
-    size: cm.size, x: slot.x, z: slot.z, rotY: cm.rotY,
+    size: cm.size, x: slot.x, z: slot.z, rotY: cm.rotY, floorY: PODIUM_TOP, // sobe o carro p/ cima do pódio
     onReady: (grp) => {
-      grp.traverse((o) => { o.userData.product = carData[i]; }); // carro inteiro clicável
+      grp.traverse((o) => { o.userData.product = carData[i]; }); // carro inteiro clicável (abre o card)
+      varnish(grp); // realça a pintura (verniz)
       clickable.push(grp);
-      cars.push({ car: grp, spin: 0.2 + i * 0.04 });
+      cars.push({ car: grp, spin });
     },
   });
-
-  // bistrô na frente do carro (lado do corredor)
-  const kiosk = makeKiosk(carData[i], slot.x);
-  kiosk.position.set(slot.x + (slot.x < 0 ? 1.9 : -1.9), 0, slot.z + 1.4);
-  scene.add(kiosk);
-
-  const spot = new THREE.SpotLight(0xfff2e6, 80, 18, Math.PI / 6, 0.5, 1.2);
-  spot.position.set(slot.x, 5.8, slot.z + 1.2); spot.target.position.set(slot.x, -0.5, slot.z);
-  scene.add(spot, spot.target);
 });
 
 /* ----------------------------------------------------------- 6b. McLaren do print no fim da sala (no chão, sem luzes próprias) */
@@ -594,17 +618,79 @@ loadModel('assets/models/hero_mclaren.glb', { size: 5, x: 0, z: -29.5, rotY: 0.5
 // roda F1 ("whell") no fim da sala, lado direito
 loadModel('assets/models/wheel_end.glb', { size: 1.7, x: 5, z: -29, rotY: 0 });
 
+// suporte de rodas — os 2 arquivos enviados (glb e o wheell_f1 em GLTF) têm a geometria quebrada
+// (não rasterizam nem com material básico). Montamos o rack metálico + pneus reais (deco_roda), igual ao print.
+(function wheelRack() {
+  const px = -5.6, pz = -32.5;
+  const metal = new THREE.MeshStandardMaterial({ color: 0xc4c8ce, metalness: 0.85, roughness: 0.32 });
+  const g = new THREE.Group(); g.position.set(px, -1.6, pz); scene.add(g);
+  const W = 3.8, H = 2.5, D = 1.05, t = 0.055;
+  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => {
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(t, t, H, 12), metal);
+    p.position.set(sx * W / 2, H / 2, sz * D / 2); g.add(p);
+  });
+  [0.62, 1.78].forEach((ly) => {
+    [-1, 1].forEach((sz) => { const b = new THREE.Mesh(new THREE.BoxGeometry(W, t * 1.4, t * 1.4), metal); b.position.set(0, ly, sz * D / 2); g.add(b); });
+    [-1, 1].forEach((sx) => { const b = new THREE.Mesh(new THREE.BoxGeometry(t * 1.4, t * 1.4, D), metal); b.position.set(sx * W / 2, ly, 0); g.add(b); });
+    for (let k = -1; k <= 1; k++) { const r = new THREE.Mesh(new THREE.BoxGeometry(t, t, D), metal); r.position.set(k * W / 3, ly + 0.02, 0); g.add(r); }
+  });
+  gltfLoader.load('assets/models/deco_roda.glb', (gltf) => {
+    fixMats(gltf.scene);
+    const bb = new THREE.Box3().setFromObject(gltf.scene); const s = bb.getSize(new THREE.Vector3());
+    const sc = 0.92 / Math.max(s.x, s.y, s.z);
+    const tire = (lx, ly, lz, lying) => {
+      const m = gltf.scene.clone(true); m.scale.setScalar(sc);
+      const tg = new THREE.Group(); tg.add(m);
+      const b2 = new THREE.Box3().setFromObject(tg); const c2 = b2.getCenter(new THREE.Vector3());
+      m.position.x -= c2.x; m.position.y -= c2.y; m.position.z -= c2.z;
+      tg.rotation.y = Math.PI / 2; if (lying) tg.rotation.x = Math.PI / 2;
+      tg.position.set(px + lx, -1.6 + ly + (lying ? 0.2 : 0.46), pz + lz);
+      scene.add(tg);
+    };
+    [-1.2, 0, 1.2].forEach((lx) => tire(lx, 0.62, 0, false));
+    [-0.6, 0.6].forEach((lx) => tire(lx, 1.78, 0, false));
+    tire(-2.7, 0, 0.5, true);
+  });
+})();
+
+// TAPETE embaixo da McLaren — o modelo tem offset interno (+1.99,-1.99); compenso p/ centralizar sob o carro (-0.03,-29.5)
+loadModel('assets/models/tapete.glb', { size: 6, x: -2.02, z: -27.5, rotY: 0, floorY: -1.585 });
+
+// LOGO F1 no topo, centralizada e ENCOSTADA na parede esquerda — em pé + brilho nas cores
+gltfLoader.load('assets/models/logo_f1.glb', (g) => {
+  const m = g.scene; fixMats(m);
+  m.traverse((o) => {
+    if (o.isMesh && o.material) {
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach((mm) => { if (mm.color) { mm.emissive = mm.color.clone(); mm.emissiveIntensity = 1.0; mm.toneMapped = false; mm.needsUpdate = true; } });
+      o.layers.enable(BLOOM_SCENE);
+    }
+  });
+  // escala (a logo é deitada: ~3.2 de largura)
+  let box = new THREE.Box3().setFromObject(m);
+  const sz = box.getSize(new THREE.Vector3());
+  const lsc = 3.4 / Math.max(sz.x, sz.y, sz.z);
+  m.scale.set(-lsc, lsc, lsc); // espelha no eixo do texto (corrige "1F" -> "F1")
+  const grp = new THREE.Group(); grp.add(m);
+  box = new THREE.Box3().setFromObject(grp); const c = box.getCenter(new THREE.Vector3());
+  m.position.sub(c);                 // centraliza no grupo
+  // a logo está DEITADA (face +y). Levanta, vira p/ +x e corrige de ponta-cabeça
+  const qx = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
+  const qy = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
+  grp.quaternion.copy(qy).multiply(qx);
+  grp.position.set(-(SHOW_HALF - 0.12), 4.7, ROOM_MIDZ); // topo, centro da parede esq, encostada
+  scene.add(grp);
+});
+// luz colorida suave atrás da logo (reforça o brilho na parede)
+const logoGlow = new THREE.PointLight(0xff2d3a, 3, 9, 2); logoGlow.position.set(-8.2, 4.9, ROOM_MIDZ); scene.add(logoGlow);
+
 /* ----------------------------------------------------------- 7. PAREDE DE QUADROS no fim (deslizam dir->esq) */
 const WALL_Z = -33;
 const endWall = new THREE.Group();
 endWall.position.set(0, 1.85, WALL_Z); // quadros mais altos (espaço p/ ver o carro no chão)
 scene.add(endWall);
 
-// painel de fundo da parede
-const backPanel = new THREE.Mesh(new THREE.PlaneGeometry(40, 9),
-  new THREE.MeshStandardMaterial({ color: 0x0a0a10, metalness: 0.5, roughness: 0.6 }));
-backPanel.position.set(0, 0.2, WALL_Z - 0.3);
-scene.add(backPanel);
+// (painel de fundo separado removido — a parede do fundo agora é uma só)
 
 const manager = new THREE.LoadingManager();
 const texLoader = new THREE.TextureLoader(manager);
@@ -657,30 +743,45 @@ wallData.forEach((data, i) => {
 const WALL_COUNT = wallData.length;
 const WALL_START_X = 0; // primeiro quadro centralizado ao chegar
 
-// spotlights da parede (suaves) — só no PC; no celular o ambiente já ilumina (foto é unlit)
-if (!isMobile) {
-  [-4, 0, 4].forEach((x) => {
-    const spot = new THREE.SpotLight(0xfff2e6, 22, 16, Math.PI / 6, 0.7, 1.2);
-    spot.position.set(x, 5.5, WALL_Z + 4); spot.target.position.set(x, 0.8, WALL_Z);
-    scene.add(spot, spot.target);
-  });
-}
+// (holofotes da parede de quadros removidos a pedido — sem brilho)
 
 /* ----------------------------------------------------------- 8. (partículas removidas a pedido) */
 
-/* ----------------------------------------------------------- 9. Postprocessing */
-let composer = null;
+/* ----------------------------------------------------------- 9. Postprocessing — BLOOM SELETIVO (só LEDs/logo) + MSAA */
+let composer = null, bloomComposer = null, finalComposer = null;
+const __darkMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+const __matStore = {};
+function darkenNonBloomed(obj) {
+  if (obj.isMesh && bloomLayer.test(obj.layers) === false) { __matStore[obj.uuid] = obj.material; obj.material = __darkMat; }
+}
+function restoreMaterial(obj) { if (__matStore[obj.uuid]) { obj.material = __matStore[obj.uuid]; delete __matStore[obj.uuid]; } }
 const __nopost = new URLSearchParams(location.search).get('nopost');
 try {
   if (__nopost || isMobile) throw new Error('postprocessing desativado (mobile/nopost)');
-  composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
-  composer.addPass(new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.28, 0.5, 0.96));
-  const vig = new ShaderPass(VignetteShader); vig.uniforms.offset.value = 1.0; vig.uniforms.darkness.value = 1.0; composer.addPass(vig);
-  composer.addPass(new OutputPass());
-  composer.setSize(window.innerWidth, window.innerHeight);
-  composer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
-} catch (e) { console.warn('[EVO] Postprocessing off', e); composer = null; }
+  const renderScene = new RenderPass(scene, camera);
+  // passe de BLOOM (threshold 0: tudo que sobrar visível na camada de bloom brilha)
+  const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.58, 0.6, 0.0);
+  bloomComposer = new EffectComposer(renderer);
+  bloomComposer.renderToScreen = false;
+  bloomComposer.addPass(renderScene);
+  bloomComposer.addPass(bloomPass);
+  // passe FINAL (com MSAA): cena normal + soma do bloom
+  const mixPass = new ShaderPass(new THREE.ShaderMaterial({
+    uniforms: { baseTexture: { value: null }, bloomTexture: { value: bloomComposer.renderTarget2.texture } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: 'uniform sampler2D baseTexture; uniform sampler2D bloomTexture; varying vec2 vUv; void main(){ gl_FragColor = texture2D(baseTexture, vUv) + texture2D(bloomTexture, vUv); }',
+  }), 'baseTexture');
+  mixPass.needsSwap = true;
+  const aaRT = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: THREE.HalfFloatType, samples: 4 });
+  finalComposer = new EffectComposer(renderer, aaRT);
+  finalComposer.addPass(renderScene);
+  finalComposer.addPass(mixPass);
+  const vig = new ShaderPass(VignetteShader); vig.uniforms.offset.value = 1.0; vig.uniforms.darkness.value = 1.0; finalComposer.addPass(vig);
+  finalComposer.addPass(new OutputPass());
+  const __pr = Math.min(window.devicePixelRatio, 2);
+  [bloomComposer, finalComposer].forEach((c) => { c.setSize(window.innerWidth, window.innerHeight); c.setPixelRatio(__pr); });
+  composer = finalComposer;
+} catch (e) { console.warn('[EVO] Postprocessing off', e); composer = null; bloomComposer = null; finalComposer = null; }
 
 /* ----------------------------------------------------------- 10. Loader */
 const loaderEl = document.getElementById('loader');
@@ -880,10 +981,19 @@ function animate() {
     ch.visible = Math.abs(wallX + ch.position.x) <= visHalf;
   }
 
-  // carros giram em torno de si
-  if (!prefersReduced) cars.forEach((c) => { c.car.rotation.y = t * c.spin; });
+  // carros + plataformas giram juntos (sensação de plataforma girando)
+  if (!prefersReduced) {
+    cars.forEach((c) => { c.car.rotation.y = t * c.spin; });
+    spinPlats.forEach((p) => { p.plat.rotation.y = t * p.spin; });
+  }
 
-  if (composer) composer.render(); else renderer.render(scene, camera);
+  // render: bloom seletivo (escurece o que não brilha -> bloom -> restaura -> cena final + bloom)
+  if (bloomComposer && finalComposer) {
+    scene.traverse(darkenNonBloomed);
+    bloomComposer.render();
+    scene.traverse(restoreMaterial);
+    finalComposer.render();
+  } else if (composer) { composer.render(); } else { renderer.render(scene, camera); }
 }
 animate();
 
@@ -892,6 +1002,8 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
-  if (composer) composer.setSize(window.innerWidth, window.innerHeight);
+  if (bloomComposer) bloomComposer.setSize(window.innerWidth, window.innerHeight);
+  if (finalComposer) finalComposer.setSize(window.innerWidth, window.innerHeight);
+  else if (composer) composer.setSize(window.innerWidth, window.innerHeight);
   window.ScrollTrigger.refresh();
 });

@@ -431,7 +431,17 @@ const DOOR_OPEN_RISE = 7.2;
 
 /* ----------------------------------------------------------- 5b. BEBIDAS (máquina de salgadinhos) na parte externa, encostadas na parede (2x à esquerda da porta) */
 gltfLoader.load('assets/models/bebidas.glb', (gltf) => {
-  const root = gltf.scene; root.updateMatrixWorld(true); // SEM fixMats -> preserva o VIDRO (senão vira painel preto)
+  const root = gltf.scene; root.updateMatrixWorld(true);
+  // opaco em TUDO menos o vidro (corrige corpo transparente sem matar o vidro)
+  root.traverse((o) => {
+    if (o.isMesh && o.material) {
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach((m) => {
+        const isGlass = ((m.name || '') + (o.name || '')).toLowerCase().includes('glass');
+        if (!isGlass) { m.transparent = false; m.opacity = 1; m.depthWrite = true; m.side = THREE.DoubleSide; m.needsUpdate = true; }
+      });
+    }
+  });
   // mede meshes e esconde "lixo" gigante; centraliza/mede pelo resto
   const items = [];
   root.traverse((o) => { if (o.isMesh && o.geometry) { o.geometry.computeBoundingBox(); const b = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld); items.push({ o, b, d: b.getSize(new THREE.Vector3()).length() }); } });
@@ -458,6 +468,9 @@ gltfLoader.load('assets/models/bebidas.glb', (gltf) => {
   // luz pra iluminar as máquinas (exterior é escuro)
   const bl = new THREE.PointLight(0xfff2e0, 7, 12, 2); bl.position.set(-8.2, 1.6, 8.2); scene.add(bl);
 });
+
+// BANCO na calçada, encostado na parede, à DIREITA da porta (comprimento paralelo à parede)
+loadModel('assets/models/banco.glb', { size: 2.4, x: 7.5, z: 6.5, rotY: -Math.PI / 2, floorY: -1.585 });
 
 /* ----------------------------------------------------------- 6. CARROS DE F1 (procedurais, giram em torno de si) */
 function makeF1Car(accent) {

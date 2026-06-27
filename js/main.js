@@ -77,6 +77,8 @@ renderer.setPixelRatio(DPR);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = true;                 // sombras reais (realismo)
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;  // sombras suaves
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05040a);
@@ -127,6 +129,7 @@ function loadModel(url, opts = {}) {
   gltfLoader.load(url, (gltf) => {
     const m = gltf.scene;
     fixMats(m);
+    m.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } }); // sombras reais
     let box = new THREE.Box3().setFromObject(m);
     const c = box.getCenter(new THREE.Vector3());
     const s = box.getSize(new THREE.Vector3());
@@ -146,6 +149,7 @@ function loadModelClean(url, opts = {}) {
   const { size = 3, x = 0, z = 0, rotY = 0, floorY = -1.6, onReady } = opts;
   gltfLoader.load(url, (gltf) => {
     const root = gltf.scene; fixMats(root); root.updateMatrixWorld(true);
+    root.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } }); // sombras reais
     const items = [];
     root.traverse((o) => { if (o.isMesh && o.geometry) { o.geometry.computeBoundingBox(); const b = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld); items.push({ o, b, d: b.getSize(new THREE.Vector3()).length() }); } });
     if (!items.length) return;
@@ -192,7 +196,7 @@ const wallTex = makeWallTexture();
 const floorTex = wallTex.clone(); floorTex.repeat.set(8, 24);
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(2 * SHOW_HALF, 91),
   new THREE.MeshStandardMaterial({ color: 0x3a3b42, metalness: 0.1, roughness: 0.6 }));
-floor.rotation.x = -Math.PI / 2; floor.position.set(0, -1.6, -39.5); scene.add(floor); // termina na porta (z=6) — não invade a calçada
+floor.rotation.x = -Math.PI / 2; floor.position.set(0, -1.6, -39.5); floor.receiveShadow = true; scene.add(floor); // termina na porta (z=6) — não invade a calçada
 // piso interno: textura "piso" (Tiles056 — xadrez preto e branco) — cor + relevo
 {
   const tlf = new THREE.TextureLoader(); let col = null, nrm = null, rgh = null, pend = 3;
@@ -352,7 +356,16 @@ scene.add(new THREE.HemisphereLight(0xbfe0ff, 0x20242c, 0.9));
 
 /* ----------------------------------------------------------- 4. Luzes (sem holofotes/brilho — só luz difusa uniforme) */
 scene.add(new THREE.AmbientLight(0xcdd2da, 1.15)); // reduzido (HDRI agora dá IBL) -> menos "chapado", mais forma
-const moon = new THREE.DirectionalLight(0xeef2ff, 0.9); moon.position.set(6, 14, 10); scene.add(moon);
+const moon = new THREE.DirectionalLight(0xeef2ff, 1.3); moon.position.set(7, 15, 9); scene.add(moon);
+// sombra real projetada pela luz principal (carros/objetos -> chão)
+moon.castShadow = true;
+moon.shadow.mapSize.set(isMobile ? 1024 : 2048, isMobile ? 1024 : 2048);
+moon.shadow.camera.near = 1; moon.shadow.camera.far = 75;
+moon.shadow.camera.left = -22; moon.shadow.camera.right = 22;
+moon.shadow.camera.top = 26; moon.shadow.camera.bottom = -26;
+moon.shadow.bias = -0.0004; moon.shadow.normalBias = 0.03;
+moon.shadow.radius = isMobile ? 3 : 6; // suavidade da borda (PCFSoft)
+moon.target.position.set(0, -1, -14); scene.add(moon.target);
 const fillLight = new THREE.DirectionalLight(0xdfe6f0, 0.5); fillLight.position.set(-6, 10, -14); scene.add(fillLight);
 
 /* ----------------------------------------------------------- 5. PORTÃO DE GARAGEM "EVO DESIGN" */
@@ -597,10 +610,10 @@ const carData = [
 ];
 // carros 3D reais (size/rotY ajustáveis por modelo)
 const carModels = [
-  { file: 'car_ferrari.glb', size: 4.94, rotY: 0 },
-  { file: 'car_rb20.glb',    size: 4.94, rotY: 0 },
-  { file: 'car_mcl39.glb',   size: 4.94, rotY: 0 },
-  { file: 'car_mp431.glb',   size: 4.94, rotY: 0 },
+  { file: 'car_ferrari.glb', size: 5.3, rotY: 0 },
+  { file: 'car_rb20.glb',    size: 5.3, rotY: 0 },
+  { file: 'car_mcl39.glb',   size: 5.3, rotY: 0 },
+  { file: 'car_mp431.glb',   size: 5.3, rotY: 0 },
 ];
 const carSlots = [
   { x: -CAR_X, z: -2 }, { x: CAR_X, z: -7 },
@@ -641,7 +654,7 @@ function makePodium(x, z, spin) {
   const baseG = new THREE.Group();
   const base = new THREE.Mesh(new THREE.CylinderGeometry(3.05, 3.35, 0.24, 60),
     new THREE.MeshStandardMaterial({ color: 0x0b0c10, metalness: 0.5, roughness: 0.45 }));
-  base.position.y = -1.52; baseG.add(base);
+  base.position.y = -1.52; base.castShadow = true; base.receiveShadow = true; baseG.add(base);
   const ring = new THREE.Mesh(new THREE.TorusGeometry(3.18, 0.07, 14, 96),
     new THREE.MeshBasicMaterial({ color: RING_BLUE }));
   ring.rotation.x = Math.PI / 2; ring.position.y = -1.5; ring.layers.enable(BLOOM_SCENE); baseG.add(ring);
@@ -651,7 +664,7 @@ function makePodium(x, z, spin) {
   const topG = new THREE.Group();
   const topDisc = new THREE.Mesh(new THREE.CylinderGeometry(3.0, 3.0, 0.12, 60),
     new THREE.MeshStandardMaterial({ color: 0x141519, metalness: 0.5, roughness: 0.4 }));
-  topDisc.position.y = -1.4; topG.add(topDisc);
+  topDisc.position.y = -1.4; topDisc.castShadow = true; topDisc.receiveShadow = true; topG.add(topDisc);
   const markMat = new THREE.MeshStandardMaterial({ color: 0x2c2e36, metalness: 0.3, roughness: 0.6 });
   for (let a = 0; a < 8; a++) { // 8 marcas na borda do disco (mostram o giro)
     const m = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.1), markMat);
@@ -695,12 +708,45 @@ function varnish(grp) {
   });
 }
 
+// plaquinha de preço na frente do carro — premium, clicável (abre o card de informações)
+function makePlaque(data, cx, cz) {
+  const g = new THREE.Group();
+  const metal = new THREE.MeshStandardMaterial({ color: 0x1a1c21, metalness: 0.85, roughness: 0.35 });
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.30, 0.07, 28), metal);
+  base.position.y = -1.565; base.castShadow = true; base.receiveShadow = true; g.add(base);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.92, 16), metal);
+  pole.position.y = -1.12; pole.castShadow = true; g.add(pole);
+  // painel (canvas): nome + "a partir de" + preço + chamada
+  const c = document.createElement('canvas'); c.width = 512; c.height = 320; const x = c.getContext('2d');
+  const bg = x.createLinearGradient(0, 0, 0, 320); bg.addColorStop(0, '#0d0f13'); bg.addColorStop(1, '#16191f');
+  x.fillStyle = bg; x.fillRect(0, 0, 512, 320);
+  x.strokeStyle = '#00d3c0'; x.lineWidth = 6; x.strokeRect(8, 8, 496, 304);
+  x.textAlign = 'center';
+  x.fillStyle = '#ffffff'; x.font = 'bold 40px Oswald, sans-serif';
+  const t = (data.title || '').toUpperCase();
+  x.fillText(t.length > 22 ? t.slice(0, 21) + '…' : t, 256, 78);
+  x.fillStyle = '#9aa0a8'; x.font = '600 22px Inter, sans-serif'; x.fillText('A PARTIR DE', 256, 126);
+  x.fillStyle = '#00d3c0'; x.font = 'bold 58px Inter, sans-serif';
+  x.fillText((data.price || '').replace(/a partir de /i, ''), 256, 192);
+  x.fillStyle = '#00d3c0'; if (x.roundRect) { x.beginPath(); x.roundRect(106, 234, 300, 58, 12); x.fill(); } else x.fillRect(106, 234, 300, 58);
+  x.fillStyle = '#06121a'; x.font = 'bold 27px Inter, sans-serif'; x.fillText('VER INFORMAÇÕES ›', 256, 272);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.56), new THREE.MeshBasicMaterial({ map: tex }));
+  panel.position.set(0, -0.5, 0.045); panel.rotation.x = -0.30; panel.userData.product = data; g.add(panel); clickable.push(panel);
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.64, 0.06), metal);
+  frame.position.set(0, -0.5, 0); frame.rotation.x = -0.30; frame.castShadow = true; g.add(frame);
+  const sideSign = cx < 0 ? -1 : 1;
+  g.position.set(cx - sideSign * 1.1, 0, cz + 3.9);
+  g.rotation.y = -sideSign * 0.35; // virada p/ o corredor/visitante
+  scene.add(g);
+}
+
 // carros: modelo + plataforma giram juntos sobre o pódio
 carSlots.forEach((slot, i) => {
   const cm = carModels[i];
   const spin = 0.2 + i * 0.04;
   makePodium(slot.x, slot.z, spin);
-  contactShadow(slot.x, slot.z, 2.05, 2.05, 0.4); // aterra o pódio no piso
+  makePlaque(carData[i], slot.x, slot.z); // plaquinha de preço na frente (clicável)
   loadModel('assets/models/' + cm.file, {
     size: cm.size, x: slot.x, z: slot.z, rotY: cm.rotY, floorY: PODIUM_TOP, // sobe o carro p/ cima do pódio
     onReady: (grp) => {

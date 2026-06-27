@@ -665,11 +665,21 @@ loadModel('assets/models/hero_mclaren.glb', { size: 5, x: 0, z: -29.5, rotY: 0.5
 // roda F1 ("whell") no fim da sala, lado direito
 loadModel('assets/models/wheel_end.glb', { size: 1.7, x: 5, z: -29, rotY: 0 });
 
-// prateleira ("prateleira_unitaria") no fundo à esquerda (compenso o offset interno -1.68 p/ centro em x=-5.6)
-loadModel('assets/models/prateleira_unitaria.glb', { size: 3.2, x: -3.92, z: -32.6, rotY: 0, floorY: -1.6 });
+// prateleira ("prateleira_unitaria") no fundo à esquerda — largura (x) +30%, costas perto da parede
+gltfLoader.load('assets/models/prateleira_unitaria.glb', (gltf) => {
+  const m = gltf.scene; fixMats(m);
+  let box = new THREE.Box3().setFromObject(m); const s = box.getSize(new THREE.Vector3());
+  const sc = 3.2 / Math.max(s.x, s.y, s.z);
+  m.scale.set(sc * 1.3, sc, sc); // largura +30%
+  const grp = new THREE.Group(); grp.add(m);
+  box = new THREE.Box3().setFromObject(grp); const c = box.getCenter(new THREE.Vector3());
+  m.position.x -= c.x; m.position.z -= c.z; m.position.y -= box.min.y; // centra xz, base no chão
+  grp.position.set(-6.5, -1.6, -32.6); // fundo-esquerda (como marcado), costas p/ a parede
+  scene.add(grp);
+});
 
 // GAME (arcade) no fundo à DIREITA, encostado na parede de vidro (espelho), de frente p/ a loja
-loadModel('assets/models/game.glb', { size: 3.38, x: 8.2, z: -30, rotY: Math.PI / 2, floorY: -1.6 }); // +30%, frente p/ a parede esquerda, encostado no espelho
+loadModel('assets/models/game.glb', { size: 3.38, x: 8.18, z: -30, rotY: Math.PI / 2, floorY: -1.6 }); // +30%, frente p/ parede esquerda, encostado no vidro (x~8.95)
 
 // TAPETE embaixo da McLaren — o modelo tem offset interno (+1.99,-1.99); compenso p/ centralizar sob o carro (-0.03,-29.5)
 loadModel('assets/models/tapete.glb', { size: 6, x: -2.02, z: -27.5, rotY: 0, floorY: -1.585 });

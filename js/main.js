@@ -204,7 +204,7 @@ floor.rotation.x = -Math.PI / 2; floor.position.set(0, -1.6, -39.5); scene.add(f
     floor.material = new THREE.MeshStandardMaterial({
       map: col, normalMap: nrm, roughnessMap: rgh, // mapa de aspereza real: rejunte fosco + cerâmica polida
       color: 0xffffff, metalness: 0.05, roughness: 0.78, // porcelanato polido premium (reflete os carros sutilmente)
-      normalScale: new THREE.Vector2(0.6, 0.6), envMapIntensity: 1.25,
+      normalScale: new THREE.Vector2(0.85, 0.85), envMapIntensity: 1.15,
     });
   };
   tlf.load('assets/textures/piso_col.jpg', (t) => { col = t; apply(); });
@@ -348,7 +348,7 @@ scene.add(new THREE.HemisphereLight(0xbfe0ff, 0x20242c, 0.9));
 /* ----------------------------------------------------------- 3b/3c. (prateleira, rodas, volantes, bancada e sofá removidos a pedido) */
 
 /* ----------------------------------------------------------- 4. Luzes (sem holofotes/brilho — só luz difusa uniforme) */
-scene.add(new THREE.AmbientLight(0xcdd2da, 1.5));
+scene.add(new THREE.AmbientLight(0xcdd2da, 1.15)); // reduzido (HDRI agora dá IBL) -> menos "chapado", mais forma
 const moon = new THREE.DirectionalLight(0xeef2ff, 0.9); moon.position.set(6, 14, 10); scene.add(moon);
 const fillLight = new THREE.DirectionalLight(0xdfe6f0, 0.5); fillLight.position.set(-6, 10, -14); scene.add(fillLight);
 
@@ -678,13 +678,13 @@ function varnish(grp) {
           metalnessMap: m.metalnessMap || null, roughnessMap: m.roughnessMap || null,
           emissive: m.emissive ? m.emissive.clone() : new THREE.Color(0x000000),
           emissiveMap: m.emissiveMap || null, emissiveIntensity: m.emissiveIntensity || 1,
-          clearcoat: 1.0, clearcoatRoughness: 0.05, // camada de verniz por cima da tinta (gloss de carro de showroom)
+          clearcoat: 0.6, clearcoatRoughness: 0.22, // verniz suave: highlight largo, NÃO cega (dá p/ ver a lataria)
         });
         if (m.normalScale && nm.normalScale) nm.normalScale.copy(m.normalScale);
       }
-      if (nm.roughness !== undefined) nm.roughness = Math.max(0.05, nm.roughness * 0.4); // base mais lisa
-      nm.envMapIntensity = 1.6; // reflexos mais ricos com o HDRI
-      const h2 = {}; nm.color.getHSL(h2); nm.color.setHSL(h2.h, Math.min(1, h2.s * 1.2), h2.l); // cor mais viva
+      if (nm.roughness !== undefined) nm.roughness = Math.max(0.24, nm.roughness * 0.7); // mantém a cor visível (não vira espelho)
+      nm.envMapIntensity = 0.75; // reflexo do HDRI controlado (não estoura)
+      const h2 = {}; nm.color.getHSL(h2); nm.color.setHSL(h2.h, Math.min(1, h2.s * 1.08), h2.l); // cor levemente mais viva
       nm.needsUpdate = true;
       return nm;
     });

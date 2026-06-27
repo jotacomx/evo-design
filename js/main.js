@@ -438,7 +438,14 @@ gltfLoader.load('assets/models/bebidas.glb', (gltf) => {
   if (!items.length) return;
   const med = items.map((i) => i.d).sort((a, b) => a - b)[Math.floor(items.length / 2)] || 1;
   const box = new THREE.Box3();
-  items.forEach((i) => { if (i.d > med * 6) i.o.visible = false; else box.union(i.b); });
+  items.forEach((i) => {
+    const sz = i.b.getSize(new THREE.Vector3());
+    const minD = Math.min(sz.x, sz.y, sz.z);
+    // painel fino e ALTO (fundo/laterais do "estúdio" do modelo) -> esconder. Prateleiras (finas no Y) ficam.
+    const panelFundo = (minD < 9) && (sz.y > 80) && (minD < sz.y - 2);
+    if (i.d > med * 6 || panelFundo) i.o.visible = false;
+    else box.union(i.b);
+  });
   const s = box.getSize(new THREE.Vector3()); const c = box.getCenter(new THREE.Vector3());
   const SIZE = 2.4; const sc = SIZE / Math.max(s.x, s.y, s.z);
   [[-6.9, 6.7], [-9.5, 6.7]].forEach(([bx, bz]) => {

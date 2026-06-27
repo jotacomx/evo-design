@@ -655,17 +655,45 @@ loadModel('assets/models/hero_mclaren.glb', { size: 5, x: 0, z: -29.5, rotY: 0.5
 // roda F1 ("whell") no fim da sala, lado direito
 loadModel('assets/models/wheel_end.glb', { size: 1.7, x: 5, z: -29, rotY: 0 });
 
-// prateleira ("prateleira_unitaria") no fundo à esquerda — largura (x) +30%, costas perto da parede
+// prateleira (prateleira_unitaria) no fundo-esquerda, estendida até perto da parede esquerda, cheia de rodas/volantes
 gltfLoader.load('assets/models/prateleira_unitaria.glb', (gltf) => {
   const m = gltf.scene; fixMats(m);
   let box = new THREE.Box3().setFromObject(m); const s = box.getSize(new THREE.Vector3());
   const sc = 3.2 / Math.max(s.x, s.y, s.z);
-  m.scale.set(sc * 1.3, sc, sc); // largura +30%
+  m.scale.set(sc, sc, sc * 1.6); // estende a LARGURA (vira world-x após girar) p/ alcançar a parede esquerda
   const grp = new THREE.Group(); grp.add(m);
   box = new THREE.Box3().setFromObject(grp); const c = box.getCenter(new THREE.Vector3());
   m.position.x -= c.x; m.position.z -= c.z; m.position.y -= box.min.y; // centra xz, base no chão
-  grp.position.set(-6.5, -1.6, -32.6); grp.rotation.y = Math.PI / 2; // fundo-esquerda, girada 90°
-  scene.add(grp);
+  grp.position.set(-7.15, -1.6, -33.2); grp.rotation.y = Math.PI / 2; // estende só p/ a esquerda (direita ~-5.5, esquerda ~-8.8)
+  scene.add(grp); grp.updateMatrixWorld(true);
+
+  // detecta os NÍVEIS (prateleiras = malhas finas no Y) e a faixa útil em X
+  const lv = []; const full = new THREE.Box3();
+  grp.traverse((o) => { if (o.isMesh && o.geometry) { o.geometry.computeBoundingBox(); const b = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld); full.union(b); const d = b.getSize(new THREE.Vector3()); if (d.y < 0.12 && d.x > 0.8) lv.push(b.max.y); } });
+  const levels = [...new Set(lv.map((v) => Math.round(v * 20) / 20))].sort((a, b) => a - b);
+  const xMin = full.min.x + 0.45, xMax = full.max.x - 0.45, zc = grp.position.z;
+
+  // carrega roda + volante e enfileira em TODOS os níveis (alternando, repetindo) — +29%
+  let roda = null, vol = null, pend = 2;
+  const fill = () => {
+    if (--pend) return;
+    const norm = (p, size) => { const b = new THREE.Box3().setFromObject(p); const z = b.getSize(new THREE.Vector3()); p.scale.setScalar(size / Math.max(z.x, z.y, z.z)); };
+    const ITEM = 0.62; norm(roda, ITEM); norm(vol, ITEM); // ~+29%
+    const span = xMax - xMin; const n = Math.max(2, Math.floor(span / (ITEM * 1.15)) + 1); const step = span / (n - 1);
+    let k = 0;
+    levels.forEach((ly) => {
+      for (let i = 0; i < n; i++) {
+        const it = ((k++ % 2 === 0) ? roda : vol).clone(true);
+        const g2 = new THREE.Group(); g2.add(it);
+        const b2 = new THREE.Box3().setFromObject(g2); const c2 = b2.getCenter(new THREE.Vector3());
+        it.position.x -= c2.x; it.position.z -= c2.z; it.position.y -= b2.min.y; // base sobre a prateleira
+        g2.position.set(xMin + i * step, ly + 0.01, zc);
+        scene.add(g2);
+      }
+    });
+  };
+  gltfLoader.load('assets/models/roda_prateleira.glb', (g) => { roda = g.scene; fixMats(roda); fill(); });
+  gltfLoader.load('assets/models/volante_prateleira.glb', (g) => { vol = g.scene; fixMats(vol); fill(); });
 });
 
 // GAME (arcade) no fundo à DIREITA, encostado na parede de vidro (espelho), de frente p/ a loja

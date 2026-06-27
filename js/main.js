@@ -27,6 +27,15 @@ gsap.registerPlugin(window.ScrollTrigger);
 const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 760;
 
+// pixel ratio limitado p/ performance (o MSAA mantém as bordas suaves mesmo com DPR menor)
+const DPR = Math.min(window.devicePixelRatio || 1, isMobile ? 1.4 : 1.6);
+// FOV adaptado ao formato da tela -> MESMA visão horizontal no PC e no celular (mesma experiência)
+function fovForAspect(aspect) {
+  const targetH = 74 * Math.PI / 180; // visão horizontal alvo
+  const v = 2 * Math.atan(Math.tan(targetH / 2) / aspect) * 180 / Math.PI;
+  return THREE.MathUtils.clamp(v, 42, 80);
+}
+
 // camada de BLOOM seletivo (só LEDs e logo brilham, sem afetar carros/piso/paredes)
 const BLOOM_SCENE = 1;
 const bloomLayer = new THREE.Layers(); bloomLayer.set(BLOOM_SCENE);
@@ -63,7 +72,7 @@ try {
   throw e;
 }
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
+renderer.setPixelRatio(DPR);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -72,7 +81,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05040a);
 scene.fog = new THREE.Fog(0x05040a, 10, 48);
 
-const camera = new THREE.PerspectiveCamera(isMobile ? 78 : 50, window.innerWidth / window.innerHeight, 0.1, 200);
+const camera = new THREE.PerspectiveCamera(fovForAspect(window.innerWidth / window.innerHeight), window.innerWidth / window.innerHeight, 0.1, 200);
 camera.position.set(0, 1.9, 15.9);
 
 const pmrem = new THREE.PMREMGenerator(renderer);
@@ -226,10 +235,11 @@ const _aniso = renderer.capabilities.getMaxAnisotropy();
 const lwallCol = _wtl.load('assets/textures/lwall_col.jpg'); lwallCol.colorSpace = THREE.SRGBColorSpace; lwallCol.wrapS = lwallCol.wrapT = THREE.RepeatWrapping; lwallCol.repeat.set(8, 2.2); lwallCol.anisotropy = _aniso;
 const lwallBump = _wtl.load('assets/textures/lwall_bump.jpg'); lwallBump.wrapS = lwallBump.wrapT = THREE.RepeatWrapping; lwallBump.repeat.set(8, 2.2); lwallBump.anisotropy = _aniso;
 [-1, 1].forEach((s) => {
-  if (s === 1 && !isMobile) {
-    // espelho na parede direita
+  if (s === 1) {
+    // espelho na parede direita (mesma no PC e no celular; resolução menor no mobile p/ performance)
+    const mRes = isMobile ? 384 : 512;
     const mirror = new Reflector(new THREE.PlaneGeometry(ROOM_LEN, 8.6), {
-      textureWidth: 1024, textureHeight: 1024, color: 0x70767e, clipBias: 0.003,
+      textureWidth: mRes, textureHeight: mRes, color: 0x70767e, clipBias: 0.003,
     });
     mirror.position.set(SHOW_HALF - 0.03, 2.7, ROOM_MIDZ);
     mirror.rotation.y = -Math.PI / 2;
@@ -542,7 +552,7 @@ const cars = [];
 const CAR_FLOOR_Y = -0.82; // rodas tocam o piso (y=-1.6)
 const accents = [0x00d3c0, 0xff2d55, 0xffd000, 0x3399ff, 0xffffff, 0x00d3c0];
 // no celular os carros ficam mais perto do centro (pra aparecerem no portrait)
-const CAR_X = isMobile ? 2.4 : 3.6; // 20% mais perto do centro
+const CAR_X = 3.6; // mesma posição no PC e no celular
 // dados de cada carro (abrem no card ao clicar no bistrô)
 const carData = [
   { img: '1.png',  title: 'Cockpit Concept Completo', price: 'a partir de R$ 3.299,90', desc: 'A versão mais imponente da EVO. Rodas dianteiras e traseiras, estrutura completa e presença máxima. A partir de 1,0m x 40cm.' },
@@ -757,8 +767,8 @@ const wallData = [
   { img: 'amb-quarto.jpg',   title: 'EVO no seu ambiente', price: '', desc: 'Veja como uma peça EVO transforma e redefine o espaço.' },
   { img: 'amb-showroom.jpg', title: 'EVO no seu ambiente', price: '', desc: 'Presença que eleva qualquer ambiente de alto padrão.' },
 ];
-const FRAME_SPACING = isMobile ? 6.5 : 4.4;
-const FRAME_H = isMobile ? 3.6 : 2.9;          // tamanho do quadro (celular um pouco maior)
+const FRAME_SPACING = 4.4; // mesmo no PC e no celular
+const FRAME_H = 2.9;       // mesmo tamanho de quadro no PC e no celular
 
 // textura do botão "VER INFORMAÇÕES" (retângulo)
 function makeButtonTexture() {
@@ -805,7 +815,7 @@ function darkenNonBloomed(obj) {
 function restoreMaterial(obj) { if (__matStore[obj.uuid]) { obj.material = __matStore[obj.uuid]; delete __matStore[obj.uuid]; } }
 const __nopost = new URLSearchParams(location.search).get('nopost');
 try {
-  if (__nopost || isMobile) throw new Error('postprocessing desativado (mobile/nopost)');
+  if (__nopost) throw new Error('postprocessing desativado (nopost)');
   const renderScene = new RenderPass(scene, camera);
   // passe de BLOOM (threshold 0: tudo que sobrar visível na camada de bloom brilha)
   const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.58, 0.6, 0.0);
@@ -820,14 +830,15 @@ try {
     fragmentShader: 'uniform sampler2D baseTexture; uniform sampler2D bloomTexture; varying vec2 vUv; void main(){ gl_FragColor = texture2D(baseTexture, vUv) + texture2D(bloomTexture, vUv); }',
   }), 'baseTexture');
   mixPass.needsSwap = true;
-  const aaRT = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: THREE.HalfFloatType, samples: 4 });
+  const aaRT = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: THREE.HalfFloatType, samples: isMobile ? 2 : 4 });
   finalComposer = new EffectComposer(renderer, aaRT);
   finalComposer.addPass(renderScene);
   finalComposer.addPass(mixPass);
   const vig = new ShaderPass(VignetteShader); vig.uniforms.offset.value = 1.0; vig.uniforms.darkness.value = 1.0; finalComposer.addPass(vig);
   finalComposer.addPass(new OutputPass());
-  const __pr = Math.min(window.devicePixelRatio, 2);
-  [bloomComposer, finalComposer].forEach((c) => { c.setSize(window.innerWidth, window.innerHeight); c.setPixelRatio(__pr); });
+  finalComposer.setSize(window.innerWidth, window.innerHeight); finalComposer.setPixelRatio(DPR);
+  // bloom em resolução reduzida (é borrado, não precisa de DPR cheio) -> bem mais barato
+  bloomComposer.setSize(window.innerWidth, window.innerHeight); bloomComposer.setPixelRatio(DPR * 0.6);
   composer = finalComposer;
 } catch (e) { console.warn('[EVO] Postprocessing off', e); composer = null; bloomComposer = null; finalComposer = null; }
 
@@ -871,7 +882,7 @@ const stepsMobile = [
   { pos: [0, 1.2, -15], look: [0, 0.7, -24] },   // 3 mais fundo (últimos carros)
   { pos: [0, 1.6, -23.5], look: [0, 1.2, -33] }, // 4 parede (afastado: aparece o carro no chão)
 ];
-const steps = isMobile ? stepsMobile : stepsDesktop;
+const steps = stepsDesktop; // mesmo trajeto de câmera no PC e no celular (FOV adapta o enquadramento)
 const target = { px: steps[0].pos[0], py: steps[0].pos[1], pz: steps[0].pos[2], lx: steps[0].look[0], ly: steps[0].look[1], lz: steps[0].look[2] };
 const fx = { door: 0 };   // portão: 0..1
 let frameIndex = 0;       // quadro atual da galeria (controlado pelas setas)
@@ -1023,7 +1034,7 @@ function animate() {
   const wallTargetX = -frameIndex * FRAME_SPACING;
   wallX += (wallTargetX - wallX) * 0.12;   // resposta rápida ao clicar na seta
   endWall.position.x = wallX;
-  const visHalf = isMobile ? 4.0 : 6.8;    // celular mostra 1 quadro grande; PC mostra o atual + vizinhos
+  const visHalf = 6.8;    // mesmo no PC e no celular (quadro atual + vizinhos)
   for (let i = 0; i < endWall.children.length; i++) {
     const ch = endWall.children[i];
     ch.visible = Math.abs(wallX + ch.position.x) <= visHalf;
@@ -1047,11 +1058,12 @@ animate();
 
 /* ----------------------------------------------------------- 15. Resize */
 window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+  const asp = window.innerWidth / window.innerHeight;
+  camera.aspect = asp; camera.fov = fovForAspect(asp); camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
-  if (bloomComposer) bloomComposer.setSize(window.innerWidth, window.innerHeight);
-  if (finalComposer) finalComposer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(DPR);
+  if (bloomComposer) { bloomComposer.setSize(window.innerWidth, window.innerHeight); bloomComposer.setPixelRatio(DPR * 0.6); }
+  if (finalComposer) { finalComposer.setSize(window.innerWidth, window.innerHeight); finalComposer.setPixelRatio(DPR); }
   else if (composer) composer.setSize(window.innerWidth, window.innerHeight);
   window.ScrollTrigger.refresh();
 });

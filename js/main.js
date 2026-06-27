@@ -11,6 +11,7 @@
 
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
@@ -85,7 +86,16 @@ const camera = new THREE.PerspectiveCamera(fovForAspect(window.innerWidth / wind
 camera.position.set(0, 1.9, 15.9);
 
 const pmrem = new THREE.PMREMGenerator(renderer);
+pmrem.compileEquirectangularShader();
+// fallback imediato (estudio sintetico) enquanto o HDRI real carrega
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.03).texture;
+// HDRI real de showroom: reflexos verdadeiros em carros/vidro/espelho (so envMap/IBL — fundo continua escuro)
+new RGBELoader().load('assets/hdr/showroom_1k.hdr', (hdr) => {
+  hdr.mapping = THREE.EquirectangularReflectionMapping;
+  const env = pmrem.fromEquirectangular(hdr).texture;
+  scene.environment = env; // NAO mexe em scene.background (mantem o clima escuro do showroom)
+  hdr.dispose();
+}, undefined, (e) => console.warn('[EVO] HDRI nao carregou (mantendo fallback):', (e && e.message) || e));
 
 /* ----------------------------------------------------------- 2. Materiais */
 const matMetal = new THREE.MeshStandardMaterial({ color: 0x1a1a22, metalness: 0.95, roughness: 0.3 });
@@ -649,18 +659,36 @@ function makePodium(x, z, spin) {
   spinPlats.push({ plat: topG, spin });
 }
 
-// "verniz": deixa a pintura do carro mais brilhante e a cor mais viva (clear-coat)
+// "verniz": pintura automotiva real (clear-coat) na carroceria + cor mais viva
 function varnish(grp) {
   grp.traverse((o) => {
-    if (o.isMesh && o.material) {
-      const mats = Array.isArray(o.material) ? o.material : [o.material];
-      mats.forEach((m) => {
-        if (m.roughness !== undefined) m.roughness = Math.max(0.06, m.roughness * 0.35); // mais liso (brilhante)
-        m.envMapIntensity = 1.5; // reflexo do ambiente (cara de verniz)
-        if (m.color) { const hsl = {}; m.color.getHSL(hsl); m.color.setHSL(hsl.h, Math.min(1, hsl.s * 1.25), hsl.l); } // cor mais viva
-        m.needsUpdate = true;
-      });
-    }
+    if (!(o.isMesh && o.material)) return;
+    const arr = Array.isArray(o.material);
+    const mats = arr ? o.material : [o.material];
+    const out = mats.map((m) => {
+      if (!m || !m.color) return m;
+      const hsl = {}; m.color.getHSL(hsl);
+      const isPaint = !m.transparent && (hsl.l > 0.12 || hsl.s > 0.22); // pintura colorida (não pneu/carbono preto fosco)
+      let nm = m;
+      if (isPaint && m.isMeshStandardMaterial && !m.isMeshPhysicalMaterial) {
+        nm = new THREE.MeshPhysicalMaterial({
+          color: m.color.clone(),
+          map: m.map || null, normalMap: m.normalMap || null,
+          metalness: m.metalness, roughness: m.roughness,
+          metalnessMap: m.metalnessMap || null, roughnessMap: m.roughnessMap || null,
+          emissive: m.emissive ? m.emissive.clone() : new THREE.Color(0x000000),
+          emissiveMap: m.emissiveMap || null, emissiveIntensity: m.emissiveIntensity || 1,
+          clearcoat: 1.0, clearcoatRoughness: 0.05, // camada de verniz por cima da tinta (gloss de carro de showroom)
+        });
+        if (m.normalScale && nm.normalScale) nm.normalScale.copy(m.normalScale);
+      }
+      if (nm.roughness !== undefined) nm.roughness = Math.max(0.05, nm.roughness * 0.4); // base mais lisa
+      nm.envMapIntensity = 1.6; // reflexos mais ricos com o HDRI
+      const h2 = {}; nm.color.getHSL(h2); nm.color.setHSL(h2.h, Math.min(1, h2.s * 1.2), h2.l); // cor mais viva
+      nm.needsUpdate = true;
+      return nm;
+    });
+    o.material = arr ? out : out[0];
   });
 }
 
@@ -682,7 +710,7 @@ carSlots.forEach((slot, i) => {
 });
 
 /* ----------------------------------------------------------- 6b. McLaren do print no fim da sala (no chão, sem luzes próprias) */
-loadModel('assets/models/hero_mclaren.glb', { size: 5, x: 0, z: -29.5, rotY: 0.5 }); // de frente p/ a entrada, levemente de lado
+loadModel('assets/models/hero_mclaren.glb', { size: 5, x: 0, z: -29.5, rotY: 0.5, onReady: (grp) => varnish(grp) }); // de frente p/ a entrada, levemente de lado
 contactShadow(0, -29.5, 2.7, 1.5, 0.5, 0.5); // sombra de contato sob a McLaren parada
 // roda F1 ("whell") no fim da sala, lado direito
 loadModel('assets/models/wheel_end.glb', { size: 1.7, x: 5, z: -29, rotY: 0 });

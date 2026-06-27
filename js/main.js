@@ -253,7 +253,9 @@ sidewalk.rotation.x = -Math.PI / 2; sidewalk.position.set(0, -1.585, 51); scene.
   const apply = () => { if (--pend) return;
     col.colorSpace = THREE.SRGBColorSpace; col.wrapS = col.wrapT = THREE.RepeatWrapping; col.repeat.set(RX, RY); col.anisotropy = ma;
     nrm.wrapS = nrm.wrapT = THREE.RepeatWrapping; nrm.repeat.set(RX, RY); nrm.anisotropy = ma;
-    sidewalk.material = new THREE.MeshStandardMaterial({ map: col, normalMap: nrm, color: 0xffffff, metalness: 0.0, roughness: 0.95 });
+    const sw = new THREE.MeshStandardMaterial({ map: col, normalMap: nrm, color: 0xffffff, metalness: 0.0, roughness: 0.82, envMapIntensity: 0.22 });
+    sw.normalScale.set(1.4, 1.4); // pedras da calçada com relevo (leve aspecto úmido à noite)
+    sidewalk.material = sw;
   };
   tls.load('assets/textures/sidewalk_col.jpg', (t) => { col = t; apply(); });
   tls.load('assets/textures/sidewalk_nrm.jpg', (t) => { nrm = t; apply(); });
@@ -367,12 +369,34 @@ moon.shadow.bias = -0.0004; moon.shadow.normalBias = 0.03;
 moon.shadow.radius = isMobile ? 3 : 6; // suavidade da borda (PCFSoft)
 moon.target.position.set(0, -1, -14); scene.add(moon.target);
 const fillLight = new THREE.DirectionalLight(0xdfe6f0, 0.5); fillLight.position.set(-6, 10, -14); scene.add(fillLight);
+// luz quente da entrada (fachada/portão à noite — profundidade premium no exterior)
+const entryLight = new THREE.PointLight(0xffd2a0, 120, 52, 2); entryLight.position.set(0, 6.2, 12); scene.add(entryLight);
 
 /* ----------------------------------------------------------- 5. PORTÃO DE GARAGEM "EVO DESIGN" */
 const doorGroup = new THREE.Group();
 scene.add(doorGroup);
 const DOOR_Y_CLOSED = 1.7;
 const DOOR_OPEN_RISE = 7.2;
+
+// deriva um NORMAL MAP do relevo de uma textura (Sobel na luminância) — dá tridimensionalidade
+// real (a luz "pega" nas chapas/pedras). Processa em baixa res (otimizado p/ celular).
+function deriveNormal(srcCanvas, strength = 1.5) {
+  const MAXW = 512, sw = srcCanvas.width, sh = srcCanvas.height;
+  const sc = Math.min(1, MAXW / sw), w = Math.max(1, Math.round(sw * sc)), h = Math.max(1, Math.round(sh * sc));
+  const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h;
+  tmp.getContext('2d').drawImage(srcCanvas, 0, 0, w, h);
+  const src = tmp.getContext('2d').getImageData(0, 0, w, h).data;
+  const out = document.createElement('canvas'); out.width = w; out.height = h;
+  const octx = out.getContext('2d'), dst = octx.createImageData(w, h);
+  const L = (xx, yy) => { xx = xx < 0 ? 0 : xx >= w ? w - 1 : xx; yy = yy < 0 ? 0 : yy >= h ? h - 1 : yy; const i = (yy * w + xx) * 4; return (src[i] * 0.299 + src[i + 1] * 0.587 + src[i + 2] * 0.114) / 255; };
+  for (let y = 0; y < h; y++) for (let x2 = 0; x2 < w; x2++) {
+    const dx = (L(x2 - 1, y) - L(x2 + 1, y)) * strength, dy = (L(x2, y - 1) - L(x2, y + 1)) * strength;
+    const len = Math.hypot(dx, dy, 1), o = (y * w + x2) * 4;
+    dst.data[o] = (dx / len * 0.5 + 0.5) * 255; dst.data[o + 1] = (dy / len * 0.5 + 0.5) * 255; dst.data[o + 2] = (1 / len * 0.5 + 0.5) * 255; dst.data[o + 3] = 255;
+  }
+  octx.putImageData(dst, 0, 0);
+  const t = new THREE.CanvasTexture(out); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; return t; // linear (normal)
+}
 
 (function buildDoor() {
   // FACHADA BRANCA completa em volta do portão (parede com o vão da porta)
@@ -407,7 +431,9 @@ const DOOR_OPEN_RISE = 7.2;
       const rx = p.w / TILE, ry = p.h / TILE, ox = (p.cx - p.w / 2) / TILE, oy = (p.cy - p.h / 2) / TILE;
       const c = stoneCol.clone(); c.wrapS = c.wrapT = THREE.RepeatWrapping; c.repeat.set(rx, ry); c.offset.set(ox, oy); c.colorSpace = THREE.SRGBColorSpace; c.anisotropy = maxAniso; c.needsUpdate = true;
       const n = stoneNrm.clone(); n.wrapS = n.wrapT = THREE.RepeatWrapping; n.repeat.set(rx, ry); n.offset.set(ox, oy); n.anisotropy = maxAniso; n.needsUpdate = true;
-      p.mesh.material = new THREE.MeshStandardMaterial({ map: c, normalMap: n, color: 0xffffff, metalness: 0.0, roughness: 0.95, side: THREE.DoubleSide });
+      const sm = new THREE.MeshStandardMaterial({ map: c, normalMap: n, color: 0xffffff, metalness: 0.0, roughness: 0.9, side: THREE.DoubleSide, envMapIntensity: 0.2 });
+      sm.normalScale.set(1.7, 1.7); // relevo da pedra mais profundo (sombras nas juntas)
+      p.mesh.material = sm;
     });
   };
   tl.load('assets/textures/wall_col.jpg', (t) => { t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; stoneCol = t; applyStone(); });
@@ -441,13 +467,18 @@ const DOOR_OPEN_RISE = 7.2;
   drawDoor(null);
   const doorTex = new THREE.CanvasTexture(dc); doorTex.colorSpace = THREE.SRGBColorSpace;
   doorTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  { const mi = new Image(); mi.onload = () => { drawDoor(mi); doorTex.needsUpdate = true; }; mi.src = 'assets/textures/door2_col.jpg'; }
 
-  // portão menos metálico/reflexivo -> sem o brilho (hotspot) acima do EVO
-  const matDoorEdge = new THREE.MeshStandardMaterial({ color: 0x5a5e63, metalness: 0.5, roughness: 0.55 });
+  // portão = CHAPA METÁLICA real: metal + relevo das chapas (normal derivado da própria foto) + reflexo do ambiente
+  const matDoorEdge = new THREE.MeshStandardMaterial({ color: 0x4a4e54, metalness: 0.6, roughness: 0.5 });
+  const doorMat = new THREE.MeshStandardMaterial({ map: doorTex, metalness: 0.72, roughness: 0.46, envMapIntensity: 0.85 });
   const panel = new THREE.Mesh(new THREE.BoxGeometry(9.2, 6.6, 0.25),
-    [matDoorEdge, matDoorEdge, matDoorEdge, matDoorEdge,
-     new THREE.MeshStandardMaterial({ map: doorTex, metalness: 0.45, roughness: 0.6 }), matDoorEdge]);
+    [matDoorEdge, matDoorEdge, matDoorEdge, matDoorEdge, doorMat, matDoorEdge]);
+  // quando a foto da chapa carrega: redesenha + deriva o relevo das chapas (a luz "pega" no metal)
+  { const mi = new Image(); mi.onload = () => {
+      drawDoor(mi); doorTex.needsUpdate = true;
+      const dn = deriveNormal(dc, 1.4); dn.anisotropy = doorTex.anisotropy;
+      doorMat.normalMap = dn; doorMat.normalScale.set(0.85, 0.85); doorMat.needsUpdate = true;
+    }; mi.src = 'assets/textures/door2_col.jpg'; }
   panel.name = 'doorPanel';
   panel.position.set(0, DOOR_Y_CLOSED, 5.9); // atrás da fachada (sobe escondido)
   doorGroup.add(panel);
@@ -709,32 +740,38 @@ function varnish(grp) {
 }
 
 // plaquinha de preço na frente do carro — premium, clicável (abre o card de informações)
+const PLAQUE_BLUE = '#4d9ad9';      // azul das plataformas (versão clara, p/ ler no painel)
+const PLAQUE_GLOW = 0x255a85;       // mesmo azul, p/ a borda que BRILHA (bloom) como o anel do pódio
 function makePlaque(data, cx, cz) {
   const g = new THREE.Group();
+  const PY = -0.98; // painel mais BAIXO (plaquinha curta)
   const metal = new THREE.MeshStandardMaterial({ color: 0x1a1c21, metalness: 0.85, roughness: 0.35 });
   const base = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.30, 0.07, 28), metal);
   base.position.y = -1.565; base.castShadow = true; base.receiveShadow = true; g.add(base);
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.92, 16), metal);
-  pole.position.y = -1.12; pole.castShadow = true; g.add(pole);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.5, 16), metal);
+  pole.position.y = -1.35; pole.castShadow = true; g.add(pole);
   // painel (canvas): nome + "a partir de" + preço + chamada
   const c = document.createElement('canvas'); c.width = 512; c.height = 320; const x = c.getContext('2d');
   const bg = x.createLinearGradient(0, 0, 0, 320); bg.addColorStop(0, '#0d0f13'); bg.addColorStop(1, '#16191f');
   x.fillStyle = bg; x.fillRect(0, 0, 512, 320);
-  x.strokeStyle = '#00d3c0'; x.lineWidth = 6; x.strokeRect(8, 8, 496, 304);
+  x.strokeStyle = PLAQUE_BLUE; x.lineWidth = 6; x.strokeRect(8, 8, 496, 304);
   x.textAlign = 'center';
   x.fillStyle = '#ffffff'; x.font = 'bold 40px Oswald, sans-serif';
   const t = (data.title || '').toUpperCase();
   x.fillText(t.length > 22 ? t.slice(0, 21) + '…' : t, 256, 78);
   x.fillStyle = '#9aa0a8'; x.font = '600 22px Inter, sans-serif'; x.fillText('A PARTIR DE', 256, 126);
-  x.fillStyle = '#00d3c0'; x.font = 'bold 58px Inter, sans-serif';
+  x.fillStyle = PLAQUE_BLUE; x.font = 'bold 58px Inter, sans-serif';
   x.fillText((data.price || '').replace(/a partir de /i, ''), 256, 192);
-  x.fillStyle = '#00d3c0'; if (x.roundRect) { x.beginPath(); x.roundRect(106, 234, 300, 58, 12); x.fill(); } else x.fillRect(106, 234, 300, 58);
+  x.fillStyle = PLAQUE_BLUE; if (x.roundRect) { x.beginPath(); x.roundRect(106, 234, 300, 58, 12); x.fill(); } else x.fillRect(106, 234, 300, 58);
   x.fillStyle = '#06121a'; x.font = 'bold 27px Inter, sans-serif'; x.fillText('VER INFORMAÇÕES ›', 256, 272);
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
   const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.56), new THREE.MeshBasicMaterial({ map: tex }));
-  panel.position.set(0, -0.5, 0.045); panel.rotation.x = -0.30; panel.userData.product = data; g.add(panel); clickable.push(panel);
+  panel.position.set(0, PY, 0.045); panel.rotation.x = -0.30; panel.userData.product = data; g.add(panel); clickable.push(panel);
+  // borda que BRILHA no mesmo azul das plataformas (bloom)
+  const rim = new THREE.Mesh(new THREE.PlaneGeometry(0.96, 0.62), new THREE.MeshBasicMaterial({ color: PLAQUE_GLOW }));
+  rim.position.set(0, PY, 0.02); rim.rotation.x = -0.30; rim.layers.enable(BLOOM_SCENE); rim.userData.product = data; g.add(rim); clickable.push(rim);
   const frame = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.64, 0.06), metal);
-  frame.position.set(0, -0.5, 0); frame.rotation.x = -0.30; frame.castShadow = true; g.add(frame);
+  frame.position.set(0, PY, 0); frame.rotation.x = -0.30; frame.castShadow = true; g.add(frame);
   const sideSign = cx < 0 ? -1 : 1;
   g.position.set(cx - sideSign * 1.1, 0, cz + 3.9);
   g.rotation.y = -sideSign * 0.35; // virada p/ o corredor/visitante

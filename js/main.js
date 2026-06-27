@@ -475,7 +475,29 @@ gltfLoader.load('assets/models/bebidas.glb', (gltf) => {
 });
 
 // BANCO na calçada, encostado na parede, à DIREITA da porta (comprimento paralelo à parede) — +30%
-loadModel('assets/models/banco.glb', { size: 3.12, x: 7.5, z: 6.5, rotY: -Math.PI / 2, floorY: -1.585 });
+gltfLoader.load('assets/models/banco.glb', (gltf) => {
+  const m = gltf.scene; fixMats(m);
+  let box = new THREE.Box3().setFromObject(m); const s = box.getSize(new THREE.Vector3());
+  const sc = 3.12 / Math.max(s.x, s.y, s.z);
+  m.scale.set(sc, sc * 1.3, sc); // altura +30%
+  const grp = new THREE.Group(); grp.add(m);
+  box = new THREE.Box3().setFromObject(grp); const c = box.getCenter(new THREE.Vector3());
+  m.position.x -= c.x; m.position.z -= c.z; m.position.y -= box.min.y; // base (todas as pernas) no chão
+  grp.position.set(7.5, -1.6, 6.5); grp.rotation.y = -Math.PI / 2;
+  scene.add(grp);
+});
+
+// PLACA "EVO DESIGN" na fachada de pedra, à esquerda da porta
+{
+  const c = document.createElement('canvas'); c.width = 512; c.height = 256;
+  const x = c.getContext('2d'); x.textAlign = 'center';
+  x.shadowColor = 'rgba(0,0,0,0.55)'; x.shadowBlur = 12; x.shadowOffsetY = 4;
+  x.fillStyle = '#00d3c0'; x.font = 'bold 150px Oswald, sans-serif'; x.fillText('EVO', 256, 135);
+  x.fillStyle = '#f4f2f7'; x.font = '600 74px Oswald, sans-serif'; x.fillText('DESIGN', 256, 212);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.2), new THREE.MeshBasicMaterial({ map: t, transparent: true }));
+  sign.position.set(-6.0, 3.0, 6.22); scene.add(sign); // parede esquerda da porta, acima das máquinas
+}
 
 /* ----------------------------------------------------------- 6. CARROS DE F1 (procedurais, giram em torno de si) */
 function makeF1Car(accent) {
@@ -647,7 +669,7 @@ loadModel('assets/models/wheel_end.glb', { size: 1.7, x: 5, z: -29, rotY: 0 });
 loadModel('assets/models/prateleira_unitaria.glb', { size: 3.2, x: -3.92, z: -32.6, rotY: 0, floorY: -1.6 });
 
 // GAME (arcade) no fundo à DIREITA, encostado na parede de vidro (espelho), de frente p/ a loja
-loadModel('assets/models/game.glb', { size: 2.6, x: 8.0, z: -30, rotY: -Math.PI / 2, floorY: -1.6 });
+loadModel('assets/models/game.glb', { size: 3.38, x: 8.2, z: -30, rotY: Math.PI / 2, floorY: -1.6 }); // +30%, frente p/ a parede esquerda, encostado no espelho
 
 // TAPETE embaixo da McLaren — o modelo tem offset interno (+1.99,-1.99); compenso p/ centralizar sob o carro (-0.03,-29.5)
 loadModel('assets/models/tapete.glb', { size: 6, x: -2.02, z: -27.5, rotY: 0, floorY: -1.585 });
@@ -681,7 +703,7 @@ gltfLoader.load('assets/models/logo_f1.glb', (g) => {
 const logoGlow = new THREE.PointLight(0xff2d3a, 3, 9, 2); logoGlow.position.set(-8.2, 4.9, ROOM_MIDZ); scene.add(logoGlow);
 
 /* ----------------------------------------------------------- 7. PAREDE DE QUADROS no fim (deslizam dir->esq) */
-const WALL_Z = -33;
+const WALL_Z = -33.85; // quadros bem juntos da parede do fundo (passam ATRÁS da prateleira)
 const endWall = new THREE.Group();
 endWall.position.set(0, 1.85, WALL_Z); // quadros mais altos (espaço p/ ver o carro no chão)
 scene.add(endWall);

@@ -271,7 +271,7 @@ const lwallBump = _wtl.load('assets/textures/lwall_bump.jpg'); lwallBump.wrapS =
     const mW = isMobile ? 640 : 1024;
     const mH = Math.max(256, Math.round(mW * window.innerHeight / Math.max(1, window.innerWidth)));
     const mirror = new Reflector(new THREE.PlaneGeometry(ROOM_LEN, 8.6), {
-      textureWidth: mW, textureHeight: mH, color: 0x3f4348, clipBias: 0.0035, // cor escura: reflexo uniforme, sem glare estourado
+      textureWidth: mW, textureHeight: mH, color: 0x9298a0, clipBias: 0.0035, // reflexo claro/natural (premium), sem ser escuro
     });
     if (mirror.getRenderTarget) mirror.getRenderTarget().samples = isMobile ? 2 : 4; // anti-aliasing dentro do reflexo
     mirror.position.set(SHOW_HALF - 0.03, 2.7, ROOM_MIDZ);

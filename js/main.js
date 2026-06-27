@@ -678,7 +678,7 @@ gltfLoader.load('assets/models/prateleira_unitaria.glb', (gltf) => {
   const fill = () => {
     if (--pend) return;
     const norm = (p, size) => { const b = new THREE.Box3().setFromObject(p); const z = b.getSize(new THREE.Vector3()); p.scale.setScalar(size / Math.max(z.x, z.y, z.z)); };
-    const ITEM = 0.62, RODA = ITEM * 1.35 * 1.5; norm(roda, RODA); norm(vol, ITEM); // roda +35% e depois +50%
+    const ITEM = 0.62, RODA = ITEM * 1.35; norm(roda, RODA); norm(vol, ITEM); // roda +35%
     const span = xMax - xMin; const sp = RODA * 1.1; const n = Math.max(2, Math.floor(span / sp) + 1); const step = span / (n - 1);
     let k = 0;
     levels.forEach((ly) => {

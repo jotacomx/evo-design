@@ -203,8 +203,8 @@ floor.rotation.x = -Math.PI / 2; floor.position.set(0, -1.6, -39.5); scene.add(f
     col.colorSpace = THREE.SRGBColorSpace; // normal e roughness ficam LINEARES (correto p/ PBR)
     floor.material = new THREE.MeshStandardMaterial({
       map: col, normalMap: nrm, roughnessMap: rgh, // mapa de aspereza real: rejunte fosco + cerâmica polida
-      color: 0xffffff, metalness: 0.05, roughness: 0.78, // porcelanato polido premium (reflete os carros sutilmente)
-      normalScale: new THREE.Vector2(0.85, 0.85), envMapIntensity: 1.15,
+      color: 0xffffff, metalness: 0.05, roughness: 0.84, // porcelanato polido premium (reflexo mais espalhado, sem ponto quente estourado)
+      normalScale: new THREE.Vector2(0.85, 0.85), envMapIntensity: 0.9,
     });
   };
   tlf.load('assets/textures/piso_col.jpg', (t) => { col = t; apply(); });
@@ -267,10 +267,13 @@ const lwallBump = _wtl.load('assets/textures/lwall_bump.jpg'); lwallBump.wrapS =
 [-1, 1].forEach((s) => {
   if (s === 1) {
     // espelho na parede direita (mesma no PC e no celular; resolução menor no mobile p/ performance)
-    const mRes = isMobile ? 384 : 512;
+    // resolução casada com o aspecto da TELA (não quadrada) + MSAA -> sem serrilhado
+    const mW = isMobile ? 640 : 1024;
+    const mH = Math.max(256, Math.round(mW * window.innerHeight / Math.max(1, window.innerWidth)));
     const mirror = new Reflector(new THREE.PlaneGeometry(ROOM_LEN, 8.6), {
-      textureWidth: mRes, textureHeight: mRes, color: 0x70767e, clipBias: 0.003,
+      textureWidth: mW, textureHeight: mH, color: 0x3f4348, clipBias: 0.0035, // cor escura: reflexo uniforme, sem glare estourado
     });
+    if (mirror.getRenderTarget) mirror.getRenderTarget().samples = isMobile ? 2 : 4; // anti-aliasing dentro do reflexo
     mirror.position.set(SHOW_HALF - 0.03, 2.7, ROOM_MIDZ);
     mirror.rotation.y = -Math.PI / 2;
     scene.add(mirror);

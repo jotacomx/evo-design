@@ -458,10 +458,15 @@ gltfLoader.load('assets/models/bebidas.glb', (gltf) => {
   });
   const s = box.getSize(new THREE.Vector3()); const c = box.getCenter(new THREE.Vector3());
   const SIZE = 2.4; const sc = SIZE / Math.max(s.x, s.y, s.z);
+  const Wm = s.x * sc, Hm = s.y * sc * 1.4, Dm = s.z * sc;
+  const sideMat = new THREE.MeshStandardMaterial({ color: 0x121317, metalness: 0.65, roughness: 0.45 });
   [[-6.9, 6.7], [-9.5, 6.7]].forEach(([bx, bz]) => {
     const m = root.clone(true); m.scale.set(sc, sc * 1.4, sc); // altura +40%
     m.position.set(-c.x * sc, -box.min.y * sc * 1.4, -c.z * sc); // centro em xz, base no chão
     const grp = new THREE.Group(); grp.add(m);
+    // fecha as laterais e o fundo (o modelo tem vidro transparente nas laterais)
+    [-1, 1].forEach((sgx) => { const sp = new THREE.Mesh(new THREE.BoxGeometry(0.05, Hm, Dm * 0.98), sideMat); sp.position.set(sgx * Wm / 2, Hm / 2, 0); grp.add(sp); });
+    const bp = new THREE.Mesh(new THREE.BoxGeometry(Wm, Hm, 0.05), sideMat); bp.position.set(0, Hm / 2, -Dm / 2); grp.add(bp);
     grp.position.set(bx, -1.585, bz); grp.rotation.y = 0; // frente (salgadinhos) virada p/ a rua
     scene.add(grp);
   });
@@ -469,8 +474,8 @@ gltfLoader.load('assets/models/bebidas.glb', (gltf) => {
   const bl = new THREE.PointLight(0xfff2e0, 7, 12, 2); bl.position.set(-8.2, 1.6, 8.2); scene.add(bl);
 });
 
-// BANCO na calçada, encostado na parede, à DIREITA da porta (comprimento paralelo à parede)
-loadModel('assets/models/banco.glb', { size: 2.4, x: 7.5, z: 6.5, rotY: -Math.PI / 2, floorY: -1.585 });
+// BANCO na calçada, encostado na parede, à DIREITA da porta (comprimento paralelo à parede) — +30%
+loadModel('assets/models/banco.glb', { size: 3.12, x: 7.5, z: 6.5, rotY: -Math.PI / 2, floorY: -1.585 });
 
 /* ----------------------------------------------------------- 6. CARROS DE F1 (procedurais, giram em torno de si) */
 function makeF1Car(accent) {
@@ -638,40 +643,11 @@ loadModel('assets/models/hero_mclaren.glb', { size: 5, x: 0, z: -29.5, rotY: 0.5
 // roda F1 ("whell") no fim da sala, lado direito
 loadModel('assets/models/wheel_end.glb', { size: 1.7, x: 5, z: -29, rotY: 0 });
 
-// suporte de rodas — os 2 arquivos enviados (glb e o wheell_f1 em GLTF) têm a geometria quebrada
-// (não rasterizam nem com material básico). Montamos o rack metálico + pneus reais (deco_roda), igual ao print.
-(function wheelRack() {
-  const px = -5.6, pz = -32.5;
-  const metal = new THREE.MeshStandardMaterial({ color: 0xc4c8ce, metalness: 0.85, roughness: 0.32 });
-  const g = new THREE.Group(); g.position.set(px, -1.6, pz); scene.add(g);
-  const W = 3.8, H = 2.5, D = 1.05, t = 0.055;
-  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => {
-    const p = new THREE.Mesh(new THREE.CylinderGeometry(t, t, H, 12), metal);
-    p.position.set(sx * W / 2, H / 2, sz * D / 2); g.add(p);
-  });
-  [0.62, 1.78].forEach((ly) => {
-    [-1, 1].forEach((sz) => { const b = new THREE.Mesh(new THREE.BoxGeometry(W, t * 1.4, t * 1.4), metal); b.position.set(0, ly, sz * D / 2); g.add(b); });
-    [-1, 1].forEach((sx) => { const b = new THREE.Mesh(new THREE.BoxGeometry(t * 1.4, t * 1.4, D), metal); b.position.set(sx * W / 2, ly, 0); g.add(b); });
-    for (let k = -1; k <= 1; k++) { const r = new THREE.Mesh(new THREE.BoxGeometry(t, t, D), metal); r.position.set(k * W / 3, ly + 0.02, 0); g.add(r); }
-  });
-  gltfLoader.load('assets/models/deco_roda.glb', (gltf) => {
-    fixMats(gltf.scene);
-    const bb = new THREE.Box3().setFromObject(gltf.scene); const s = bb.getSize(new THREE.Vector3());
-    const sc = 0.92 / Math.max(s.x, s.y, s.z);
-    const tire = (lx, ly, lz, lying) => {
-      const m = gltf.scene.clone(true); m.scale.setScalar(sc);
-      const tg = new THREE.Group(); tg.add(m);
-      const b2 = new THREE.Box3().setFromObject(tg); const c2 = b2.getCenter(new THREE.Vector3());
-      m.position.x -= c2.x; m.position.y -= c2.y; m.position.z -= c2.z;
-      tg.rotation.y = Math.PI / 2; if (lying) tg.rotation.x = Math.PI / 2;
-      tg.position.set(px + lx, -1.6 + ly + (lying ? 0.2 : 0.46), pz + lz);
-      scene.add(tg);
-    };
-    [-1.2, 0, 1.2].forEach((lx) => tire(lx, 0.62, 0, false));
-    [-0.6, 0.6].forEach((lx) => tire(lx, 1.78, 0, false));
-    tire(-2.7, 0, 0.5, true);
-  });
-})();
+// prateleira ("prateleira_unitaria") no fundo à esquerda (compenso o offset interno -1.68 p/ centro em x=-5.6)
+loadModel('assets/models/prateleira_unitaria.glb', { size: 3.2, x: -3.92, z: -32.6, rotY: 0, floorY: -1.6 });
+
+// GAME (arcade) no fundo à DIREITA, encostado na parede de vidro (espelho), de frente p/ a loja
+loadModel('assets/models/game.glb', { size: 2.6, x: 8.0, z: -30, rotY: -Math.PI / 2, floorY: -1.6 });
 
 // TAPETE embaixo da McLaren — o modelo tem offset interno (+1.99,-1.99); compenso p/ centralizar sob o carro (-0.03,-29.5)
 loadModel('assets/models/tapete.glb', { size: 6, x: -2.02, z: -27.5, rotY: 0, floorY: -1.585 });

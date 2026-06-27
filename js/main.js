@@ -975,6 +975,28 @@ if (!prefersReduced && !isMobile) {
   window.addEventListener('pointermove', (e) => { mouse.x = (e.clientX / window.innerWidth - 0.5) * 2; mouse.y = (e.clientY / window.innerHeight - 0.5) * 2; });
 }
 
+/* --------------- 13a. OLHAR AO REDOR: arrastar horizontal gira a visão (PC e celular). Vertical continua rolando. */
+const look = { yaw: 0, target: 0 };
+const MAX_YAW = 1.15; // ~66° -> dá p/ ver as paredes laterais
+{
+  let dragging = false, sx = 0, sy = 0, mode = 0; // 0=indef, 1=horizontal(olhar), 2=vertical(scroll)
+  const el = renderer.domElement;
+  el.addEventListener('pointerdown', (e) => { dragging = true; sx = e.clientX; sy = e.clientY; mode = 0; });
+  el.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (mode === 0 && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) mode = (Math.abs(dx) > Math.abs(dy)) ? 1 : 2;
+    if (mode === 1) {
+      if (e.cancelable) e.preventDefault();
+      look.target = THREE.MathUtils.clamp(-dx * (MAX_YAW / (window.innerWidth * 0.38)), -MAX_YAW, MAX_YAW); // arrasta p/ esquerda -> olha p/ esquerda
+    }
+  }, { passive: false });
+  const end = () => { dragging = false; look.target = 0; }; // soltar -> volta suave ao centro
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+  el.addEventListener('pointerleave', end);
+}
+
 /* ----------------------------------------------------------- 13b. Clique nos quadros -> card de produto */
 const raycaster = new THREE.Raycaster();
 const pointerV = new THREE.Vector2();
@@ -1011,6 +1033,9 @@ if (cardEl) {
 
 /* ----------------------------------------------------------- 14. Render loop */
 const lookAt = new THREE.Vector3(steps[0].look[0], steps[0].look[1], steps[0].look[2]);
+const _UP = new THREE.Vector3(0, 1, 0);
+const _dir = new THREE.Vector3();
+const _finalLook = new THREE.Vector3();
 const clock = new THREE.Clock();
 let doorY = DOOR_Y_CLOSED, wallX = WALL_START_X;
 function animate() {
@@ -1023,7 +1048,11 @@ function animate() {
   lookAt.x += (target.lx - lookAt.x) * 0.06;
   lookAt.y += (target.ly - lookAt.y) * 0.06;
   lookAt.z += (target.lz - lookAt.z) * 0.06;
-  camera.lookAt(lookAt);
+  // olhar ao redor: gira a direção do olhar pelo yaw do arrasto (volta suave ao soltar)
+  look.yaw += (look.target - look.yaw) * 0.12;
+  _dir.set(lookAt.x - camera.position.x, lookAt.y - camera.position.y, lookAt.z - camera.position.z).applyAxisAngle(_UP, look.yaw);
+  _finalLook.copy(camera.position).add(_dir);
+  camera.lookAt(_finalLook);
 
   // portão sobe ao abrir
   const doorTargetY = DOOR_Y_CLOSED + fx.door * DOOR_OPEN_RISE;

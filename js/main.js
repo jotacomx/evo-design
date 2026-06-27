@@ -678,16 +678,18 @@ gltfLoader.load('assets/models/prateleira_unitaria.glb', (gltf) => {
   const fill = () => {
     if (--pend) return;
     const norm = (p, size) => { const b = new THREE.Box3().setFromObject(p); const z = b.getSize(new THREE.Vector3()); p.scale.setScalar(size / Math.max(z.x, z.y, z.z)); };
-    const ITEM = 0.62; norm(roda, ITEM); norm(vol, ITEM); // ~+29%
-    const span = xMax - xMin; const n = Math.max(2, Math.floor(span / (ITEM * 1.15)) + 1); const step = span / (n - 1);
+    const ITEM = 0.62; norm(roda, ITEM * 1.35); norm(vol, ITEM); // roda +35%
+    const span = xMax - xMin; const sp = ITEM * 1.35 * 1.1; const n = Math.max(2, Math.floor(span / sp) + 1); const step = span / (n - 1);
     let k = 0;
     levels.forEach((ly) => {
       for (let i = 0; i < n; i++) {
-        const it = ((k++ % 2 === 0) ? roda : vol).clone(true);
+        const isRoda = (k++ % 2 === 0);
+        const it = (isRoda ? roda : vol).clone(true);
         const g2 = new THREE.Group(); g2.add(it);
         const b2 = new THREE.Box3().setFromObject(g2); const c2 = b2.getCenter(new THREE.Vector3());
         it.position.x -= c2.x; it.position.z -= c2.z; it.position.y -= b2.min.y; // base sobre a prateleira
         g2.position.set(xMin + i * step, ly + 0.01, zc);
+        if (isRoda) g2.rotation.y = Math.PI / 4; // roda girada 45°
         scene.add(g2);
       }
     });

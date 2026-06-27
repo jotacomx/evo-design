@@ -487,17 +487,7 @@ gltfLoader.load('assets/models/banco.glb', (gltf) => {
   scene.add(grp);
 });
 
-// PLACA "EVO DESIGN" na fachada de pedra, à esquerda da porta
-{
-  const c = document.createElement('canvas'); c.width = 512; c.height = 256;
-  const x = c.getContext('2d'); x.textAlign = 'center';
-  x.shadowColor = 'rgba(0,0,0,0.55)'; x.shadowBlur = 12; x.shadowOffsetY = 4;
-  x.fillStyle = '#00d3c0'; x.font = 'bold 150px Oswald, sans-serif'; x.fillText('EVO', 256, 135);
-  x.fillStyle = '#f4f2f7'; x.font = '600 74px Oswald, sans-serif'; x.fillText('DESIGN', 256, 212);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.2), new THREE.MeshBasicMaterial({ map: t, transparent: true }));
-  sign.position.set(-6.0, 3.0, 6.22); scene.add(sign); // parede esquerda da porta, acima das máquinas
-}
+// (placa "EVO DESIGN" da parede removida a pedido)
 
 /* ----------------------------------------------------------- 6. CARROS DE F1 (procedurais, giram em torno de si) */
 function makeF1Car(accent) {
@@ -674,12 +664,12 @@ gltfLoader.load('assets/models/prateleira_unitaria.glb', (gltf) => {
   const grp = new THREE.Group(); grp.add(m);
   box = new THREE.Box3().setFromObject(grp); const c = box.getCenter(new THREE.Vector3());
   m.position.x -= c.x; m.position.z -= c.z; m.position.y -= box.min.y; // centra xz, base no chão
-  grp.position.set(-6.5, -1.6, -32.6); // fundo-esquerda (como marcado), costas p/ a parede
+  grp.position.set(-6.5, -1.6, -32.6); grp.rotation.y = Math.PI / 2; // fundo-esquerda, girada 90°
   scene.add(grp);
 });
 
 // GAME (arcade) no fundo à DIREITA, encostado na parede de vidro (espelho), de frente p/ a loja
-loadModel('assets/models/game.glb', { size: 3.38, x: 8.18, z: -30, rotY: Math.PI / 2, floorY: -1.6 }); // +30%, frente p/ parede esquerda, encostado no vidro (x~8.95)
+loadModel('assets/models/game.glb', { size: 3.38, x: 8.1, z: -30, rotY: Math.PI, floorY: -1.6 }); // girado +90° anti-horário, encostado no vidro (x~8.95)
 
 // TAPETE embaixo da McLaren — o modelo tem offset interno (+1.99,-1.99); compenso p/ centralizar sob o carro (-0.03,-29.5)
 loadModel('assets/models/tapete.glb', { size: 6, x: -2.02, z: -27.5, rotY: 0, floorY: -1.585 });

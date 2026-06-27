@@ -452,7 +452,7 @@ gltfLoader.load('assets/models/bebidas.glb', (gltf) => {
     const m = root.clone(true); m.scale.set(sc, sc * 1.4, sc); // altura +40%
     m.position.set(-c.x * sc, -box.min.y * sc * 1.4, -c.z * sc); // centro em xz, base no chão
     const grp = new THREE.Group(); grp.add(m);
-    grp.position.set(bx, -1.585, bz); grp.rotation.y = Math.PI; // de frente p/ a rua
+    grp.position.set(bx, -1.585, bz); grp.rotation.y = 0; // frente (salgadinhos) virada p/ a rua
     scene.add(grp);
   });
   // luz pra iluminar as máquinas (exterior é escuro)

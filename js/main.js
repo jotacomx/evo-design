@@ -185,16 +185,36 @@ const floor = new THREE.Mesh(new THREE.PlaneGeometry(2 * SHOW_HALF, 91),
 floor.rotation.x = -Math.PI / 2; floor.position.set(0, -1.6, -39.5); scene.add(floor); // termina na porta (z=6) — não invade a calçada
 // piso interno: textura "piso" (Tiles056 — xadrez preto e branco) — cor + relevo
 {
-  const tlf = new THREE.TextureLoader(); let col = null, nrm = null, pend = 2;
+  const tlf = new THREE.TextureLoader(); let col = null, nrm = null, rgh = null, pend = 3;
   const RX = 2.5, RY = 12.6; // escala uniforme (quadrados ~1,2m)
   const ma = renderer.capabilities.getMaxAnisotropy();
   const apply = () => { if (--pend) return;
-    col.colorSpace = THREE.SRGBColorSpace; col.wrapS = col.wrapT = THREE.RepeatWrapping; col.repeat.set(RX, RY); col.anisotropy = ma;
-    nrm.wrapS = nrm.wrapT = THREE.RepeatWrapping; nrm.repeat.set(RX, RY); nrm.anisotropy = ma;
-    floor.material = new THREE.MeshStandardMaterial({ map: col, normalMap: nrm, color: 0xffffff, metalness: 0.2, roughness: 0.4 });
+    [col, nrm, rgh].forEach((t) => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(RX, RY); t.anisotropy = ma; });
+    col.colorSpace = THREE.SRGBColorSpace; // normal e roughness ficam LINEARES (correto p/ PBR)
+    floor.material = new THREE.MeshStandardMaterial({
+      map: col, normalMap: nrm, roughnessMap: rgh, // mapa de aspereza real: rejunte fosco + cerâmica polida
+      color: 0xffffff, metalness: 0.05, roughness: 0.78, // porcelanato polido premium (reflete os carros sutilmente)
+      normalScale: new THREE.Vector2(0.6, 0.6), envMapIntensity: 1.25,
+    });
   };
   tlf.load('assets/textures/piso_col.jpg', (t) => { col = t; apply(); });
   tlf.load('assets/textures/piso_nrm.jpg', (t) => { nrm = t; apply(); });
+  tlf.load('assets/textures/piso_rgh.jpg', (t) => { rgh = t; apply(); });
+}
+// --- sombras de contato suaves (aterram carros/McLaren no piso — leitura premium) ---
+const _shadowTex = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const rg = g.createRadialGradient(64, 64, 6, 64, 64, 64);
+  rg.addColorStop(0, 'rgba(0,0,0,0.5)'); rg.addColorStop(0.5, 'rgba(0,0,0,0.24)'); rg.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = rg; g.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+function contactShadow(x, z, rx, rz, opacity = 0.45, yaw = 0) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(rx * 2, rz * 2),
+    new THREE.MeshBasicMaterial({ map: _shadowTex, transparent: true, opacity, depthWrite: false }));
+  m.rotation.order = 'YXZ'; m.rotation.y = yaw; m.rotation.x = -Math.PI / 2;
+  m.position.set(x, -1.593, z); m.renderOrder = 2; scene.add(m);
 }
 
 
@@ -649,6 +669,7 @@ carSlots.forEach((slot, i) => {
   const cm = carModels[i];
   const spin = 0.2 + i * 0.04;
   makePodium(slot.x, slot.z, spin);
+  contactShadow(slot.x, slot.z, 2.05, 2.05, 0.4); // aterra o pódio no piso
   loadModel('assets/models/' + cm.file, {
     size: cm.size, x: slot.x, z: slot.z, rotY: cm.rotY, floorY: PODIUM_TOP, // sobe o carro p/ cima do pódio
     onReady: (grp) => {
@@ -662,8 +683,10 @@ carSlots.forEach((slot, i) => {
 
 /* ----------------------------------------------------------- 6b. McLaren do print no fim da sala (no chão, sem luzes próprias) */
 loadModel('assets/models/hero_mclaren.glb', { size: 5, x: 0, z: -29.5, rotY: 0.5 }); // de frente p/ a entrada, levemente de lado
+contactShadow(0, -29.5, 2.7, 1.5, 0.5, 0.5); // sombra de contato sob a McLaren parada
 // roda F1 ("whell") no fim da sala, lado direito
 loadModel('assets/models/wheel_end.glb', { size: 1.7, x: 5, z: -29, rotY: 0 });
+contactShadow(5, -29, 1.0, 1.0, 0.45); // sombra sob a roda
 
 // prateleira (prateleira_unitaria) no fundo-esquerda, estendida até perto da parede esquerda, cheia de rodas/volantes
 gltfLoader.load('assets/models/prateleira_unitaria.glb', (gltf) => {
